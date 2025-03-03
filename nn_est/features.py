@@ -1,81 +1,112 @@
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
-import math
+from sklearn.preprocessing import MinMaxScaler
+import torch
 
-
-file_paths = [
-    "./data/raw/wind_speed_11_n.csv",
-    "./data/raw/wind_speed_13_n.csv",
-    "./data/raw/wind_speed_15_n.csv",
-    "./data/raw/wind_speed_17_n.csv",
-    "./data/raw/wind_speed_19_n.csv"
-]
-
-# Load datasets
-datasets = [pd.read_csv(file) for file in file_paths]
-
-# Define features and targets
-features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", 
-            "beta1", "beta2", "beta3", "omega_r"]
-targets = ["Mz1", "Mz2", "Mz3"]
-
-train_data_x = []
-train_data_y = []
-val_data_x = []
-val_data_y = []
-test_data = {}
-
-Hyperparameters['seq_len'] = Hyperparameters['total_len']//Hyperparameters['gap']
-
-scaler_x = MinMaxScaler()
-scaler_y = MinMaxScaler()
-
-def create_sequences(data, targets, gap, total_len):
-    X_seq, y_seq = [], []
-    for i in range(len(data) - total_len + 1):
-        X_seq.append(data[i + gap - 1 : i + total_len: gap])
-        y_seq.append(targets[i + total_len - 1])
-    return np.array(X_seq), np.array(y_seq)
-
-# Split datasets
-i = 0
-for dataset in datasets:
-
-    n = len(dataset)
-    train_end_idx = int(0.6 * n)
-    val_end_idx = int(0.8 * n)
+def load_data(batch_params):
+    file_paths = [
+        "./data/raw/wind_speed_11_n.csv",
+        "./data/raw/wind_speed_13_n.csv",
+        "./data/raw/wind_speed_15_n.csv",
+        "./data/raw/wind_speed_17_n.csv",
+        "./data/raw/wind_speed_19_n.csv"
+    ]
     
-    # Sequential splits
-    train_segment = dataset.iloc[:train_end_idx]
-    val_segment = dataset.iloc[train_end_idx:val_end_idx]
-    test_segment = dataset.iloc[val_end_idx:]
+    # Load datasets
+    datasets = [pd.read_csv(file) for file in file_paths]
+    
+    # Define features and targets
+    features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", 
+                "beta1", "beta2", "beta3", "omega_r"]
+    targets = ["Mz1", "Mz2", "Mz3"]
+    
+    train_data = []
+    val_data = []
+    test_data = []
+    
+    i = 0
+    
+    def create_sequences(data, targets, gap, total_len):
+        X_seq, y_seq = [], []
+        for i in range(len(data) - total_len + 1):
+            X_seq.append(data[i + gap - 1 : i + total_len: gap])
+            y_seq.append(targets[i + total_len - 1])
+        return np.array(X_seq), np.array(y_seq)
+    
+    # Split datasets
+    for dataset in datasets:
+        n = len(dataset)
+        test_start_idx = int((i % 5) * 0.2 * n)
+        test_end_idx = test_start_idx + int(0.2 * n)
+        
+        # Extract test data first
+        test_data.append(dataset.iloc[test_start_idx:test_end_idx])
+        remaining_data = dataset.drop(dataset.index[test_start_idx:test_end_idx])
+        
+        # Split remaining data into training and validation
+        train_end_idx = int(0.8 * len(remaining_data))
+        train_data.append(remaining_data.iloc[:train_end_idx])
+        val_data.append(remaining_data.iloc[train_end_idx:])
+        
+        i += 1
+    
+    # Concatenate datasets
+    train_data = pd.concat(train_data, ignore_index=True)
+    val_data = pd.concat(val_data, ignore_index=True)
+    test_data = pd.concat(test_data, ignore_index=True)
+    
+    # Initialize scalers
+    scaler_x = MinMaxScaler()
+    scaler_y = MinMaxScaler()
+    
+    # Scale the features and targets
+    train_x = scaler_x.fit_transform(train_data[features].values)
+    train_y = scaler_y.fit_transform(train_data[targets].values)
+    val_x = scaler_x.transform(val_data[features].values)
+    val_y = scaler_y.transform(val_data[targets].values)
+    test_x = scaler_x.transform(test_data[features].values)
+    test_y = scaler_y.transform(test_data[targets].values)
+    
+    # Create sequences
+    train_seq_x, train_seq_y = create_sequences(train_x, train_y, batch_params['gap'], batch_params['total_len'])
+    val_seq_x, val_seq_y = create_sequences(val_x, val_y, batch_params['gap'], batch_params['total_len'])
+    test_seq_x, test_seq_y = create_sequences(test_x, test_y, batch_params['gap'], batch_params['total_len'])
+    
+    # Convert to PyTorch tensors
+    X_train_tensor = torch.tensor(train_seq_x, dtype=torch.float32)
+    y_train_tensor = torch.tensor(train_seq_y, dtype=torch.float32)
+    X_val_tensor = torch.tensor(val_seq_x, dtype=torch.float32)
+    y_val_tensor = torch.tensor(val_seq_y, dtype=torch.float32)
+    
+    # Wrap tensors in DataLoader for batching
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+    
+    train_loader = DataLoader(train_dataset, batch_size=batch_params['batch_size'], shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_params['batch_size'], shuffle=False)
+    
+    return train_loader, val_loader, test_seq_x, test_seq_y
 
-    if i==0: #fit the scaler only on the first training set
-      train_segment_x = scaler_x.fit_transform(train_segment[features].values)
-      train_segment_y = scaler_y.fit_transform(train_segment[targets].values)
-
-    else:
-      train_segment_x = scaler_x.transform(train_segment[features].values)
-      train_segment_y = scaler_y.transform(train_segment[targets].values)
-
-    val_segment_x = scaler_x.transform(val_segment[features].values)
-    val_segment_y = scaler_y.transform(val_segment[targets].values)
-
-    train_seq_x,train_seq_y = create_sequences(train_segment_x, train_segment_y, Hyperparameters['gap'], Hyperparameters['total_len'])
-    val_seq_x,val_seq_y = create_sequences(val_segment_x, val_segment_y, Hyperparameters['gap'], Hyperparameters['total_len'])
-
-    # Append to lists
-    train_data_x.append(train_seq_x)
-    train_data_y.append(train_seq_y)
-    val_data_x.append(val_seq_x)
-    val_data_y.append(val_seq_y)
-    test_data[i] = test_segment
-    i += 1
-
-train_data_x = np.concatenate(train_data_x, axis=0)
-train_data_y = np.concatenate(train_data_y, axis=0)
-val_data_x = np.concatenate(val_data_x, axis=0)
-val_data_y = np.concatenate(val_data_y, axis=0)
+if __name__ == "__main__":
+    batch_params = {
+        "gap": 10,
+        "total_len": 100,
+        "batch_size": 16,
+    }
+    
+    train_loader, val_loader, test_data_x, test_data_y = load_data(batch_params)
+    
+    # Test loading
+    for batch_x, batch_y in train_loader:
+        print("Train batch X shape:", batch_x.shape)
+        print("Train batch Y shape:", batch_y.shape)
+        break  # Print only the first batch
+    
+    for batch_x, batch_y in val_loader:
+        print("Validation batch X shape:", batch_x.shape)
+        print("Validation batch Y shape:", batch_y.shape)
+        break  # Print only the first batch
+    
+    print("Test data X shape:", test_data_x.shape)
+    print("Test data Y shape:", test_data_y.shape)
