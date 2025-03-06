@@ -36,13 +36,13 @@ class EarlyStopping:
                 self.early_stop = True
 
 # Define training function
-def train_model(train_loader, val_loader, hyperparameters):
+def train_model(train_loader, val_loader, batch_params, hyperparameters):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     model = TransformerModel(
         input_dim=train_loader.dataset[0][0].shape[-1],
         output_dim=train_loader.dataset[0][1].shape[-1],
-        seq_len=hyperparameters['total_len'] // hyperparameters['gap'],
+        seq_len=batch_params['total_len'] // batch_params['gap'],
         d_model=hyperparameters['d_model'],
         nhead=hyperparameters['nhead'],
         num_layers=hyperparameters['num_layers'],
@@ -129,4 +129,5 @@ if __name__ == "__main__":
     }
     
     train_loader, val_loader, _, _ = load_data(batch_params)
-    train_model(train_loader, val_loader, hyperparameters)
+    train_model(train_loader, val_loader, batch_params, hyperparameters)
+
