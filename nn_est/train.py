@@ -4,6 +4,14 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import numpy as np
 from features import load_data
+import os
+import sys
+
+# Get the absolute path of the script's directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Add the models directory to sys.path
+sys.path.append(os.path.join(script_dir, "models"))
 from models.Transformer import TransformerModel
 
 # Define EarlyStopping class
