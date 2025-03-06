@@ -7,11 +7,14 @@ from features import load_data
 import os
 import sys
 
-# Get the absolute path of the script's directory
+# Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one level
 
-# Add the models directory to sys.path
-sys.path.append(os.path.join(script_dir, "models"))
+# Add project root to sys.path
+sys.path.append(project_root)
+
+
 from models.Transformer import TransformerModel
 
 # Define EarlyStopping class

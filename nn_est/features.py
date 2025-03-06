@@ -23,8 +23,7 @@ def load_data(batch_params):
     datasets = [pd.read_csv(file) for file in file_paths]
     
     # Define features and targets
-    features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", 
-                "beta1", "beta2", "beta3", "omega_r"]
+    features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", "beta1", "beta2", "beta3", "omega_r"]
     targets = ["Mz1", "Mz2", "Mz3"]
     
     train_data = []
