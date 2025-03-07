@@ -16,6 +16,7 @@ sys.path.append(project_root)
 
 
 from models.Transformer import TransformerModel
+from models.XGBoost import XGBoostModel
 
 # Define EarlyStopping class
 class EarlyStopping:
@@ -36,7 +37,7 @@ class EarlyStopping:
                 self.early_stop = True
 
 # Define training function
-def train_model(train_loader, val_loader, batch_params, hyperparameters):
+def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     model = TransformerModel(
@@ -129,5 +130,5 @@ if __name__ == "__main__":
     }
     
     train_loader, val_loader, _, _ = load_data(batch_params)
-    train_model(train_loader, val_loader, batch_params, hyperparameters)
+    train_transformer(train_loader, val_loader, batch_params, hyperparameters)
 

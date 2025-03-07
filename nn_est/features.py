@@ -1,22 +1,22 @@
 import os
 import pandas as pd
 import numpy as np
+import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
-import torch
 
 # Automatically find the absolute path of NN_WindLoadEstimation
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def load_data(batch_params):
     # Define file paths using absolute paths
     file_paths = [
-        os.path.join(PROJECT_ROOT, "data/raw/wind_speed_11_n.csv"),
-        os.path.join(PROJECT_ROOT, "data/raw/wind_speed_13_n.csv"),
-        os.path.join(PROJECT_ROOT, "data/raw/wind_speed_15_n.csv"),
-        os.path.join(PROJECT_ROOT, "data/raw/wind_speed_17_n.csv"),
-        os.path.join(PROJECT_ROOT, "data/raw/wind_speed_19_n.csv")
+        os.path.join(project_root, "data/raw/wind_speed_11_n.csv"),
+        os.path.join(project_root, "data/raw/wind_speed_13_n.csv"),
+        os.path.join(project_root, "data/raw/wind_speed_15_n.csv"),
+        os.path.join(project_root, "data/raw/wind_speed_17_n.csv"),
+        os.path.join(project_root, "data/raw/wind_speed_19_n.csv")
     ]
     
     # Load datasets
