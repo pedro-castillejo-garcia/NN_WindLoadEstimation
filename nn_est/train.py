@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 import numpy as np
-from features import load_data
+import pandas as pd
 import os
 import sys
+from datetime import datetime
+
+from features import load_data
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13,7 +15,6 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 
 # Add project root to sys.path
 sys.path.append(project_root)
-
 
 from models.Transformer import TransformerModel
 from models.XGBoost import XGBoostModel
@@ -95,20 +96,23 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
             print("Early stopping triggered. Stopping training.")
             break
     
-    # Plot the losses
-    plt.figure(figsize=(10, 5))
-    plt.plot(range(1, len(train_losses) + 1), train_losses, label='Training Loss')
-    plt.plot(range(1, len(val_losses) + 1), val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss Over Epochs')
-    plt.legend()
-    plt.grid()
-    plt.show()
+    # Create directories if they don't exist
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
     
-    # Save the model
-    torch.save(model.state_dict(), "transformer_model.pth")
-    print("Model saved as transformer_model.pth")
+    # Save the model with current date and time
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    model_path = os.path.join(checkpoints_dir, f"transformer_{current_datetime}.pth")
+    torch.save(model.state_dict(), model_path)
+    print(f"Model saved as {model_path}")
+    
+    # Save training logs to CSV inside the training_logs folder
+    log_path = os.path.join(logs_dir, f"training_logs_{current_datetime}.csv")
+    logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
+    logs_df.to_csv(log_path, index=False)
+    print(f"Training logs saved as {log_path}")
 
 if __name__ == "__main__":
     batch_params = {
@@ -131,4 +135,3 @@ if __name__ == "__main__":
     
     train_loader, val_loader, _, _ = load_data(batch_params)
     train_transformer(train_loader, val_loader, batch_params, hyperparameters)
-
