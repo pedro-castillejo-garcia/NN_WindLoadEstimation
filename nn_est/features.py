@@ -8,6 +8,12 @@ from sklearn.preprocessing import MinMaxScaler
 # Automatically find the absolute path of NN_WindLoadEstimation
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
+def create_sequences(data, targets, gap, total_len):
+        X_seq, y_seq = [], []
+        for i in range(len(data) - total_len + 1):
+            X_seq.append(data[i + gap - 1 : i + total_len: gap])
+            y_seq.append(targets[i + total_len - 1])
+        return np.array(X_seq), np.array(y_seq)
 
 def load_data(batch_params):
     # Define file paths using absolute paths
@@ -32,12 +38,6 @@ def load_data(batch_params):
     
     i = 0
     
-    def create_sequences(data, targets, gap, total_len):
-        X_seq, y_seq = [], []
-        for i in range(len(data) - total_len + 1):
-            X_seq.append(data[i + gap - 1 : i + total_len: gap])
-            y_seq.append(targets[i + total_len - 1])
-        return np.array(X_seq), np.array(y_seq)
     
     # Split datasets
     for dataset in datasets:
@@ -73,6 +73,12 @@ def load_data(batch_params):
     test_x = scaler_x.transform(test_data[features].values)
     test_y = scaler_y.transform(test_data[targets].values)
     
+    return train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y
+ 
+def prepare_dataloaders(batch_params):
+    
+    train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y = load_data(batch_params)    
+    
     # Create sequences
     train_seq_x, train_seq_y = create_sequences(train_x, train_y, batch_params['gap'], batch_params['total_len'])
     val_seq_x, val_seq_y = create_sequences(val_x, val_y, batch_params['gap'], batch_params['total_len'])
@@ -84,14 +90,31 @@ def load_data(batch_params):
     X_val_tensor = torch.tensor(val_seq_x, dtype=torch.float32)
     y_val_tensor = torch.tensor(val_seq_y, dtype=torch.float32)
     
-    # Wrap tensors in DataLoader for batching
+    # Data for Transformer (sequence data)
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_params['batch_size'], shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_params['batch_size'], shuffle=False)
     
-    return train_loader, val_loader, test_seq_x, test_seq_y
+     # Data for XGBoost (flattened data)
+    X_train_flat = train_seq_x.reshape(train_seq_x.shape[0], -1)
+    y_train_flat = train_seq_y
+    X_val_flat = val_seq_x.reshape(val_seq_x.shape[0], -1)
+    y_val_flat = val_seq_y
+    X_test_flat = test_seq_x.reshape(test_seq_x.shape[0], -1)
+    y_test_flat = test_seq_y
+
+    xgb_data = {
+        'X_train': X_train_flat,
+        'y_train': y_train_flat,
+        'X_val': X_val_flat,
+        'y_val': y_val_flat,
+        'X_test': X_test_flat,
+        'y_test': y_test_flat
+    }
+
+    return train_loader, val_loader, xgb_data, scaler_x, scaler_y
 
 if __name__ == "__main__":
     batch_params = {
@@ -100,18 +123,4 @@ if __name__ == "__main__":
         "batch_size": 16,
     }
     
-    train_loader, val_loader, test_data_x, test_data_y = load_data(batch_params)
-    
-    # Test loading
-    for batch_x, batch_y in train_loader:
-        print("Train batch X shape:", batch_x.shape)
-        print("Train batch Y shape:", batch_y.shape)
-        break  # Print only the first batch
-    
-    for batch_x, batch_y in val_loader:
-        print("Validation batch X shape:", batch_x.shape)
-        print("Validation batch Y shape:", batch_y.shape)
-        break  # Print only the first batch
-    
-    print("Test data X shape:", test_data_x.shape)
-    print("Test data Y shape:", test_data_y.shape)
+    train_loader, val_loader, xgb_data, scalers = prepare_dataloaders(batch_params)    

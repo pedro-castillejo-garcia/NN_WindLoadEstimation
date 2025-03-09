@@ -1,13 +1,16 @@
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import pandas as pd
-import os
-import sys
-from datetime import datetime
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
+from datetime import datetime
 from features import load_data
+from features import prepare_dataloaders
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +42,7 @@ class EarlyStopping:
 
 # Define training function
 def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
+    print("Training Transformer")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     model = TransformerModel(
@@ -56,6 +60,7 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
+    
     early_stopping = EarlyStopping(patience=5, delta=0.00001)
     
     train_losses, val_losses = [], []
@@ -106,13 +111,51 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     model_path = os.path.join(checkpoints_dir, f"transformer_{current_datetime}.pth")
     torch.save(model.state_dict(), model_path)
-    print(f"Model saved as {model_path}")
     
     # Save training logs to CSV inside the training_logs folder
     log_path = os.path.join(logs_dir, f"training_logs_{current_datetime}.csv")
     logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")
+
+
+# XGBoost Training Function
+def train_xgboost(xgb_data, hyperparameters):
+    print("Training XGBoost")
+
+    # Initialize XGBoost model
+    xgb_model = XGBoostModel(
+        n_estimators=hyperparameters.get("n_estimators", 200),
+        max_depth=hyperparameters.get("max_depth", 6),
+        learning_rate=hyperparameters.get("learning_rate", 0.05)
+    )
+
+    # Train model
+    xgb_model.train(xgb_data["X_train"], xgb_data["y_train"])
+
+    # Validate model
+    predictions = xgb_model.predict(xgb_data["X_val"])
+
+    # Compute metrics
+    rmse = np.sqrt(mean_squared_error(xgb_data["y_val"], predictions))
+    mae = mean_absolute_error(xgb_data["y_val"], predictions)
+    r2 = r2_score(xgb_data["y_val"], predictions)
+
+    print(f"XGBoost Results: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
+
+    # Plot predictions
+    plt.figure(figsize=(10, 5))
+    plt.plot(xgb_data["y_val"][:100, 0], label="Actual Torque (Mz1)", color="red")
+    plt.plot(predictions[:100, 0], label="Predicted Torque (Mz1)", color="blue")
+    plt.title("XGBoost Torque Prediction")
+    plt.xlabel("Sample")
+    plt.ylabel("Torque")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+    return xgb_model
+
 
 if __name__ == "__main__":
     batch_params = {
@@ -131,7 +174,21 @@ if __name__ == "__main__":
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
         "epochs": 10,
+        "n_estimators": 200,
+        "max_depth": 6,
     }
     
-    train_loader, val_loader, _, _ = load_data(batch_params)
-    train_transformer(train_loader, val_loader, batch_params, hyperparameters)
+    # Load preprocessed data
+    train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    
+    train_transformer_flag = False  # Set to True to train Transformer
+    train_xgboost_flag = True  # Set to True to train XGBoost
+
+    # Train Transformer if flag is set
+    if train_transformer_flag:
+        train_transformer(train_loader, val_loader, batch_params, hyperparameters)
+
+    # Train XGBoost if flag is set
+    if train_xgboost_flag:
+        train_xgboost(xgb_data, hyperparameters)
+        
