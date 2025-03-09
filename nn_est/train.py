@@ -181,6 +181,9 @@ if __name__ == "__main__":
     # Load preprocessed data
     train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     
+    
+    # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
+    
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = True  # Set to True to train XGBoost
 
