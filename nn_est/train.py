@@ -161,11 +161,11 @@ if __name__ == "__main__":
     batch_params = {
         "gap": 10,
         "total_len": 100,
-        "batch_size": 16,
+        "batch_size": 32,
     }
     
     hyperparameters = {
-        "dropout": 0.5,
+        "dropout": 0.3,
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
@@ -173,7 +173,7 @@ if __name__ == "__main__":
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "epochs": 10,
+        "epochs": 100,
         "n_estimators": 200,
         "max_depth": 6,
     }
