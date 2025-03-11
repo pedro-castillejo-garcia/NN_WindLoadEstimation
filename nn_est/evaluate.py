@@ -7,7 +7,7 @@ from datetime import datetime
 from sklearn.metrics import mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
 import sys
-from features import load_data
+from features import prepare_dataloaders
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -17,32 +17,17 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
+from models.XGBoost import XGBoostModel
 
-def main():
-    print("[INFO] Script started. Initializing variables...")
+def evaluate_transformer(batch_params, hyperparameters, model_name):
+    print("[INFO] Evaluating Transformer model...")
 
     # Load test data
-    batch_params = {
-        "gap": 10,
-        "total_len": 100,
-        "batch_size": 32  
-    }
-    print(f"[INFO] Batch parameters: {batch_params}")
+    train_loader, val_loader, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    
+    test_data_x = test_loader.dataset.tensors[0].numpy()
+    test_data_y = test_loader.dataset.tensors[1].numpy()
 
-    hyperparameters = {
-        "dropout": 0.3,
-        "d_model": 64,
-        "nhead": 4,
-        "num_layers": 2,
-        "dim_feedforward": 256,
-        "layer_norm_eps": 1e-5,
-        "learning_rate": 1e-4,
-        "weight_decay": 1e-4,
-    }
-    print(f"[INFO] Hyperparameters: {hyperparameters}")
-
-    print("[INFO] Loading test data...")
-    train_loader, _, test_data_x, test_data_y, scaler_x, scaler_y = load_data(batch_params)
     print(f"[INFO] Test data loaded: X shape: {test_data_x.shape}, Y shape: {test_data_y.shape}")
 
     # Select device
@@ -51,7 +36,6 @@ def main():
 
     # Path to saved model
     checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_name = "transformer_2025-03-09_15-18-32.pth"
     model_path = os.path.join(checkpoints_dir, model_name)
     print(f"[INFO] Loading model from: {model_path}")
 
@@ -60,8 +44,8 @@ def main():
 
     # Construct model architecture exactly matching trained model
     model = TransformerModel(
-        input_dim=train_loader.dataset[0][0].shape[-1],
-        output_dim=train_loader.dataset[0][1].shape[-1],
+        input_dim=train_loader.dataset.tensors[0].shape[-1],  
+        output_dim=train_loader.dataset.tensors[1].shape[-1],  
         seq_len=batch_params['total_len'] // batch_params['gap'],
         d_model=hyperparameters['d_model'],
         nhead=hyperparameters['nhead'],
@@ -85,7 +69,6 @@ def main():
 
     # Build a DataLoader for test data in small mini‐batches
     test_dataset = TensorDataset(X_test_tensor, Y_test_tensor)
-    # Pick a batch_size that fits your GPU; 512 is just a starting guess
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)  
 
     print("[INFO] Generating predictions in mini-batches...")
@@ -116,7 +99,7 @@ def main():
     logs_dir = os.path.join(project_root, "logs", "test_logs")
     os.makedirs(logs_dir, exist_ok=True)
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"test_logs_{current_datetime}.csv")
+    mse_log_path = os.path.join(logs_dir, f"transformer_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
         "Metric": ["MSE"] + list(hyperparameters.keys()),
@@ -125,30 +108,129 @@ def main():
     mse_df.to_csv(mse_log_path, index=False)
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
 
-    # Create a plot of a slice of predictions vs. ground truth
+    # Call the separate plot function
+    plot_results(y_true, y_pred, scaler_y, project_root, model_name="transformer_latest.pth", model_type="Transformer")
+
+    return mse
+
+def evaluate_xgboost(batch_params, hyperparameters, model_name):
+    print("[INFO] Evaluating XGBoost model...")
+
+    # Load test data
+    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+
+    # Initialize XGBoost model
+    xgb_model = XGBoostModel(
+        n_estimators=hyperparameters.get("n_estimators", 200),
+        max_depth=hyperparameters.get("max_depth", 6),
+        learning_rate=hyperparameters.get("learning_rate", 0.05)
+    )
+
+    # Load model weights if saved
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    model_path = os.path.join(checkpoints_dir, model_name)
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] XGBoost model file {model_name} not found in {checkpoints_dir}")
+
+    xgb_model.model.load_model(model_path)
+    print("[INFO] XGBoost model loaded successfully.")
+
+    # Generate predictions
+    y_pred = xgb_model.predict(xgb_data["X_test"])
+
+    # Compute MSE with inverse transformation
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(xgb_data["y_test"])
+    mse = mean_squared_error(inversed_true, inversed_pred)
+
+    print(f"[INFO] Computed MSE: {mse}")
+
+    # Save MSE results
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"xg_boost_logs_{current_datetime}.csv")
+
+    #FIX THISSSSSSSSSSSSSSS
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+    print(f"[INFO] XGBoost Model MSE: {mse}")
+
+    # Call the separate plot function
+    plot_results(inversed_true, inversed_pred, scaler_y, project_root, model_name="xgboost_latest.json", model_type="XGBoost")
+
+    return mse
+
+def plot_results(y_true, y_pred, scaler_y, project_root, model_name, model_type):
+    """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
+    print("[INFO] Generating plot for predictions vs ground truth...")
+
     plots_dir = os.path.join(project_root, "plots")
     os.makedirs(plots_dir, exist_ok=True)
 
-    slice_size = min(100, len(y_true))  # only plot up to 100 points
-    t_slice = np.arange(slice_size)
-    pred_slice = y_pred[:slice_size]
-    true_slice = y_true[:slice_size]
+    # Inverse transform to restore original scale of torque values
+    y_true_original = scaler_y.inverse_transform(y_true)
+    y_pred_original = scaler_y.inverse_transform(y_pred)
+
+    sample_size = min(1600, len(y_true_original))  # Limit to first 1600 samples (10 seconds)
+    time_labels = np.linspace(0, 10, num=sample_size)  # Generate time labels from 0 to 10 sec
+
+    pred_sample = y_pred_original[:sample_size]
+    true_sample = y_true_original[:sample_size]
 
     plt.figure(figsize=(12, 6))
-    for j in range(true_slice.shape[1]):
-        plt.plot(t_slice, true_slice[:, j], label=f"Ground Truth Mz{j+1}", linestyle="dotted")
-        plt.plot(t_slice, pred_slice[:, j], label=f"Prediction Mz{j+1}")
+    for j in range(true_sample.shape[1]):
+        plt.plot(time_labels, true_sample[:, j], label=f"{model_type} Ground Truth Mz{j+1}", linestyle="dotted")
+        plt.plot(time_labels, pred_sample[:, j], label=f"{model_type} Prediction Mz{j+1}")
 
-    plt.xlabel("Time Steps")
+    plt.xlabel("Time (seconds)")
     plt.ylabel("Torque Values")
-    plt.title("Predictions vs Ground Truth (Sample Slice)")
+    plt.title(f"{model_type} Predictions vs Ground Truth (First 10 Seconds)")
     plt.legend()
     plt.grid()
 
-    plot_path = os.path.join(plots_dir, f"test_plot_{current_datetime}.png")
+    # Custom filename for each model type
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    plot_filename = f"{model_type.lower()}_plot_{current_datetime}.png"
+    plot_path = os.path.join(plots_dir, plot_filename)
+    
     plt.savefig(plot_path, dpi=300)
-    print(f"[INFO] Test plot saved at {plot_path}")
-    print("[INFO] Evaluation script completed successfully.")
+    print(f"[INFO] {model_type} plot saved at {plot_path}")
 
+# Example usage
 if __name__ == "__main__":
-    main()
+    batch_params = {
+        "gap": 10,
+        "total_len": 100,
+        "batch_size": 32
+    }
+
+    hyperparameters = {
+        "dropout": 0.3,
+        "d_model": 64,
+        "nhead": 4,
+        "num_layers": 2,
+        "dim_feedforward": 256,
+        "layer_norm_eps": 1e-5,
+        "learning_rate": 1e-4,
+        "weight_decay": 1e-4,
+    }
+    
+    # Set model names
+    transformer_model_name = "transformer_latest.pth"
+    xgboost_model_name = "xgboost_latest.json"
+
+    # Choose which model to evaluate
+    evaluate_transformer_flag = True
+    evaluate_xgboost_flag = True
+
+    if evaluate_transformer_flag:
+        evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
+
+    if evaluate_xgboost_flag:
+        evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
