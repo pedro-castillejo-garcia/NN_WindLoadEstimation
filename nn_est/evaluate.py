@@ -145,6 +145,7 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     # Compute MSE
     inversed_pred = scaler_y.inverse_transform(y_pred)
     inversed_true = scaler_y.inverse_transform(xgb_data["y_test"])
+    
     mse = mean_squared_error(inversed_true, inversed_pred)
 
     print(f"[INFO] XGBoost Model MSE: {mse}")
@@ -153,6 +154,19 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     # total_len = batch_params["total_len"]
     #t_test = np.arange(len(inversed_true))  # Assuming time is based on index
     # t_test_aligned = t_test[total_len - 1:]  # Align time with the sequences
+
+    # Save MSE results
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"xg_boost_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
 
     # Plot results
     plot_results(xgb_data["y_test"], y_pred, scaler_y, project_root, model_name, "XGBoost")

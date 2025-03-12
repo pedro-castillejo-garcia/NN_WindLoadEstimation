@@ -154,7 +154,8 @@ def train_xgboost(xgb_data, hyperparameters):
     
     return xgb_model
 
-if __name__ == "__main__":
+# MAYBE HAVE ONE hyperparameters DICT PER MODEL
+if __name__ == "__main__":              
     batch_params = {
         "gap": 10,
         "total_len": 100,
@@ -172,15 +173,13 @@ if __name__ == "__main__":
         "weight_decay": 1e-4,
         "n_estimators": 300,
         "max_depth": 8,
-        "subsample": 0.8,            # Use 80% of data per boosting round
-        "colsample_bytree": 0.8,     # Use 80% of features per tree
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,     
         "gamma": 0.1,  
     }
     
-    
     # Load preprocessed data
     train_loader, val_loader, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
-    
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
