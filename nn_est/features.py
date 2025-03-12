@@ -68,8 +68,10 @@ def load_data(batch_params):
     # Scale the features and targets
     train_x = scaler_x.fit_transform(train_data[features].values)
     train_y = scaler_y.fit_transform(train_data[targets].values)
+    
     val_x = scaler_x.transform(val_data[features].values)
     val_y = scaler_y.transform(val_data[targets].values)
+    
     test_x = scaler_x.transform(test_data[features].values)
     test_y = scaler_y.transform(test_data[targets].values)
     

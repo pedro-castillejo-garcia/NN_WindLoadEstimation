@@ -119,11 +119,12 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     # Load test data
     _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
 
-    # Initialize XGBoost model
+    # Load trained XGBoost model
     xgb_model = XGBoostModel(
-        n_estimators=hyperparameters.get("n_estimators", 200),
-        max_depth=hyperparameters.get("max_depth", 6),
-        learning_rate=hyperparameters.get("learning_rate", 0.05)
+        n_estimators=hyperparameters["n_estimators"],
+        max_depth=hyperparameters["max_depth"],
+        learning_rate=hyperparameters["learning_rate"],
+        objective="reg:squarederror"
     )
 
     # Load model weights if saved
@@ -133,43 +134,35 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"[ERROR] XGBoost model file {model_name} not found in {checkpoints_dir}")
 
-    xgb_model.model.load_model(model_path)
-    print("[INFO] XGBoost model loaded successfully.")
+    xgb_model.load_model(model_path)
 
     # Generate predictions
     y_pred = xgb_model.predict(xgb_data["X_test"])
 
-    # Compute MSE with inverse transformation
+    # Ensure correct shape
+    y_pred = y_pred.reshape(-1, 3)
+
+    # Compute MSE
     inversed_pred = scaler_y.inverse_transform(y_pred)
     inversed_true = scaler_y.inverse_transform(xgb_data["y_test"])
     mse = mean_squared_error(inversed_true, inversed_pred)
 
-    print(f"[INFO] Computed MSE: {mse}")
-
-    # Save MSE results
-    logs_dir = os.path.join(project_root, "logs", "test_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"xg_boost_logs_{current_datetime}.csv")
-
-    #FIX THISSSSSSSSSSSSSSS
-    mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
-    })
-    mse_df.to_csv(mse_log_path, index=False)
-    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
     print(f"[INFO] XGBoost Model MSE: {mse}")
 
-    # Call the separate plot function
-    plot_results(inversed_true, inversed_pred, scaler_y, project_root, model_name="xgboost_latest.json", model_type="XGBoost")
+    # Prepare time-aligned data for plotting
+    # total_len = batch_params["total_len"]
+    #t_test = np.arange(len(inversed_true))  # Assuming time is based on index
+    # t_test_aligned = t_test[total_len - 1:]  # Align time with the sequences
+
+    # Plot results
+    plot_results(xgb_data["y_test"], y_pred, scaler_y, project_root, model_name, "XGBoost")
 
     return mse
 
 def plot_results(y_true, y_pred, scaler_y, project_root, model_name, model_type):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
-
+    
     plots_dir = os.path.join(project_root, "plots")
     os.makedirs(plots_dir, exist_ok=True)
 
@@ -219,6 +212,8 @@ if __name__ == "__main__":
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
+        "n_estimators": 500,
+        "max_depth": 10,
     }
     
     # Set model names
@@ -226,7 +221,7 @@ if __name__ == "__main__":
     xgboost_model_name = "xgboost_latest.json"
 
     # Choose which model to evaluate
-    evaluate_transformer_flag = True
+    evaluate_transformer_flag = False
     evaluate_xgboost_flag = True
 
     if evaluate_transformer_flag:

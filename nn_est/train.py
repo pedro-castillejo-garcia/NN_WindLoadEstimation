@@ -171,8 +171,8 @@ if __name__ == "__main__":
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
         "epochs": 3,                  # CHANGE THIS TO 10 LATER
-        "n_estimators": 200,
-        "max_depth": 6,
+        "n_estimators": 500,
+        "max_depth": 10,
     }
     
     # Load preprocessed data
