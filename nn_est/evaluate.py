@@ -212,8 +212,11 @@ if __name__ == "__main__":
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "n_estimators": 500,
-        "max_depth": 10,
+        "n_estimators": 300,
+        "max_depth": 8,
+        "subsample": 0.8,            # Use 80% of data per boosting round
+        "colsample_bytree": 0.8,     # Use 80% of features per tree
+        "gamma": 0.1,  
     }
     
     # Set model names

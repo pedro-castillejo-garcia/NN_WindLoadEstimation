@@ -114,7 +114,7 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     torch.save(model.state_dict(), model_path)
     
     # Save training logs to CSV inside the training_logs folder
-    log_path = os.path.join(logs_dir, f"training_logs_{current_datetime}.csv")
+    log_path = os.path.join(logs_dir, f"transformer_training_logs_{current_datetime}.csv")
     logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")
@@ -170,18 +170,21 @@ if __name__ == "__main__":
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "epochs": 3,                  # CHANGE THIS TO 10 LATER
-        "n_estimators": 500,
-        "max_depth": 10,
+        "n_estimators": 300,
+        "max_depth": 8,
+        "subsample": 0.8,            # Use 80% of data per boosting round
+        "colsample_bytree": 0.8,     # Use 80% of features per tree
+        "gamma": 0.1,  
     }
     
+    
     # Load preprocessed data
-    train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    train_loader, val_loader, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
-    train_transformer_flag = True  # Set to True to train Transformer
+    train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = True  # Set to True to train XGBoost
 
     # Train Transformer if flag is set
