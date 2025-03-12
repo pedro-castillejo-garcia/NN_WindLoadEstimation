@@ -101,7 +101,7 @@ def prepare_dataloaders(batch_params):
     val_loader = DataLoader(val_dataset, batch_size=batch_params['batch_size'], shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_params['batch_size'], shuffle=False)
     
-    # Data for XGBoost (flattened data)
+    # Data for XGBoost & This can be used for RBF model aswell (flattened data)
     X_train_flat = train_seq_x.reshape(train_seq_x.shape[0], -1)
     y_train_flat = train_seq_y
     X_val_flat = val_seq_x.reshape(val_seq_x.shape[0], -1)

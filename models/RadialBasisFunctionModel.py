@@ -6,7 +6,7 @@ from sklearn.metrics import mean_squared_error
 
 
 
-class RBFN:
+class RBFN_model:
     def __init__(self, input_dim, num_hidden_neurons, output_dim, learning_rate=0.01):
         self.input_dim = input_dim
         self.num_hidden_neurons = num_hidden_neurons

@@ -18,6 +18,8 @@ sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
 from models.XGBoost import XGBoostModel
+from models.RadialBasisFunctionModel import RBFN_model
+
 
 def evaluate_transformer(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
@@ -166,6 +168,105 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
 
     return mse
 
+def evaluate_rbf(batch_params, hyperparameters, model_name="rbfn_latest.npz"):
+    print("[INFO] Evaluating RBFN model...")
+
+    # load test data
+    # xgb data holds x_test, y_test in flattend form exactly whar rbfn wants
+    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+
+    X_test = xgb_data["X_test"]
+    y_test = xgb_data["y_test"]
+    print(f"[INFO] Test data shape: X={X_test.shape}, y={y_test.shape}")
+
+    input_dim  = X_test.shape[1]
+    output_dim = y_test.shape[1]
+    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 50)
+    learning_rate      = hyperparameters.get("learning_rate", 0.01)
+
+
+    RBFN = RBFN_model(input_dim, num_hidden_neurons, output_dim, learning_rate=learning_rate)
+
+    # loading saved parameters (centroids, betas, weights) from .npz
+
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    model_path = os.path.join(checkpoints_dir, model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] RBFN model file {model_name} not found in {checkpoints_dir}")
+
+    
+    print(f"[INFO] Loading RBFN parameters from {model_path}")
+    npz_file = np.load(model_path)
+    RBFN.centroids = npz_file["centroids"]
+    RBFN.betas     = npz_file["betas"]
+    RBFN.weights   = npz_file["weights"]
+    print("[INFO] RBFN parameters loaded successfully.")
+
+    print("[INFO] Generating RBFN predictions...")
+    y_pred = RBFN.predict(X_test)
+
+    # calculate MSE in original scale
+    inversed_true = scaler_y.inverse_transform(y_test)
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    mse = mean_squared_error(inversed_true, inversed_pred)
+    print(f"[INFO] Computed RBFN MSE on test: {mse}")
+
+    # log  MSE & hyperparams
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"rbfn_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+
+    plot_results_rbf(y_test, y_pred, scaler_y, project_root, model_name=model_name, model_type="RBFN")
+    
+    return mse
+
+# a plot function for rbf features/nature
+def plot_results_rbf(y_true, y_pred, scaler_y, project_root, model_name, model_type):
+    print("[INFO] Generating plot for RBFN predictions vs ground truth...")
+
+    plots_dir = os.path.join(project_root, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    # Inverse transform
+    y_true_orig = scaler_y.inverse_transform(y_true)
+    y_pred_orig = scaler_y.inverse_transform(y_pred)
+
+    sample_size = min(1600, len(y_true_orig))
+    time_labels = np.linspace(0, 10, num=sample_size)  # Samme logik som i de andre
+
+    pred_sample = y_pred_orig[:sample_size]
+    true_sample = y_true_orig[:sample_size]
+
+    plt.figure(figsize=(12, 6))
+    for j in range(true_sample.shape[1]):
+        plt.plot(time_labels, true_sample[:, j], 
+                 label=f"{model_type} Ground Truth Mz{j+1}", linestyle="dotted")
+        plt.plot(time_labels, pred_sample[:, j], 
+                 label=f"{model_type} Prediction Mz{j+1}")
+
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("Torque Values")
+    plt.title(f"{model_type} Predictions vs Ground Truth (First 10 Seconds)")
+    plt.legend()
+    plt.grid()
+
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    plot_filename = f"{model_type.lower()}_plot_{current_datetime}.png"
+    plot_path = os.path.join(plots_dir, plot_filename)
+    
+    plt.savefig(plot_path, dpi=300)
+    print(f"[INFO] {model_type} plot saved at {plot_path}")
+
+
 def plot_results(y_true, y_pred, scaler_y, project_root, model_name, model_type):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
@@ -217,20 +318,30 @@ if __name__ == "__main__":
         "num_layers": 2,
         "dim_feedforward": 256,
         "layer_norm_eps": 1e-5,
-        "learning_rate": 1e-4,
+        #"learning_rate": 1e-4,
         "weight_decay": 1e-4,
-    }
+
+        # RBF-hyperparametre
+        "num_hidden_neurons": 100,
+        "learning_rate": 0.01,
+
+    }   
     
     # Set model names
     transformer_model_name = "transformer_latest.pth"
     xgboost_model_name = "xgboost_latest.json"
+    rbfn_model_name = "rbfn_latest.npz"
 
-    # Choose which model to evaluate
-    evaluate_transformer_flag = True
-    evaluate_xgboost_flag = True
+    #decide which model
+    evaluate_transformer_flag = False
+    evaluate_xgboost_flag = False
+    evaluate_rbfn_flag = True  # Sæt True for at teste RBFN
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
 
     if evaluate_xgboost_flag:
         evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
+
+    if evaluate_rbfn_flag:
+        evaluate_rbf(batch_params, hyperparameters, rbfn_model_name)

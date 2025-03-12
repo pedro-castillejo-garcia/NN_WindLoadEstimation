@@ -5,4 +5,7 @@ pip
 python-dotenv
 numpy
 scikit-learn
+torch
+pandas
+matplotlib
 -e .

@@ -20,8 +20,8 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
-from models.XGBoost import XGBoostModel
-
+#from models.XGBoost import XGBoostModel
+from models.RadialBasisFunctionModel import RBFN_model
 # Define EarlyStopping class
 class EarlyStopping:
     def __init__(self, patience=10, delta=0.001):
@@ -154,6 +154,67 @@ def train_xgboost(xgb_data, hyperparameters):
     
     return xgb_model
 
+def train_rbfn(xgb_data, hyperparameters):
+   
+    print("[INFO] Training RBFN")
+
+    # getting data
+    X_train = xgb_data["X_train"]
+    y_train = xgb_data["y_train"]
+    X_val   = xgb_data["X_val"]
+    y_val   = xgb_data["y_val"]
+
+    #  setting parameters
+    input_dim  = X_train.shape[1]
+    output_dim = y_train.shape[1]
+    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 50)
+    learning_rate      = hyperparameters.get("learning_rate", 0.01)
+    epochs             = hyperparameters.get("epochs", 10)
+    
+    #init
+    model = RBFN_model(input_dim, num_hidden_neurons, output_dim, learning_rate=learning_rate)
+
+    #train
+    train_losses, val_losses = model.train(
+        X_train, y_train,
+        X_val=X_val, y_val=y_val,
+        epochs=epochs
+    )
+
+    #val
+    val_pred = model.predict(X_val)
+    val_mse = mean_squared_error(y_val, val_pred)
+    val_rmse = np.sqrt(val_mse)
+    print(f"[INFO] RBFN Validation: MSE={val_mse:.4f}, RMSE={val_rmse:.4f}")
+
+    # saving the modelparameters, to .npz (centroids, betas, weights)
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    model_path = os.path.join(checkpoints_dir, "rbfn_latest.npz")
+
+    np.savez(model_path,
+             centroids=model.centroids,
+             betas=model.betas,
+             weights=model.weights)
+    print(f"[INFO] RBFN model saved at {model_path}")
+
+    #logging epochs, train_loss, val_loss til CSV
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"rbfn_training_logs_{current_datetime}.csv")
+    
+    logs_df = pd.DataFrame({
+        "Epoch": range(1, len(train_losses)+1),
+        "Train Loss": train_losses,
+        "Val Loss": val_losses
+    })
+    logs_df.to_csv(log_path, index=False)
+    print(f"[INFO] RBFN training logs saved at {log_path}")
+
+    return model
+
+
 if __name__ == "__main__":
     batch_params = {
         "gap": 10,
@@ -168,21 +229,33 @@ if __name__ == "__main__":
         "num_layers": 2,
         "dim_feedforward": 256,
         "layer_norm_eps": 1e-5,
-        "learning_rate": 1e-4,
+        #"learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "epochs": 3,                  # CHANGE THIS TO 10 LATER
+        "epochs": 10,                  # CHANGE THIS TO 10 LATER
         "n_estimators": 200,
         "max_depth": 6,
+
+        #rbf-parameters:
+        "learning_rate": 0.01,
+        "num_hidden_neurons": 100,
     }
     
     # Load preprocessed data
-    train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+
+   
+    #Prepare loader returns 6 values? 
+    #train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     
+    #updated version
+    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
-    train_transformer_flag = True  # Set to True to train Transformer
-    train_xgboost_flag = True  # Set to True to train XGBoost
+    train_transformer_flag = False  # Set to True to train Transformer
+    train_xgboost_flag = False  # Set to True to train XGBoost
+    train_rbfn_flag = True  # Set to True to train rbfn
+
 
     # Train Transformer if flag is set
     if train_transformer_flag:
@@ -191,4 +264,6 @@ if __name__ == "__main__":
     # Train XGBoost if flag is set
     if train_xgboost_flag:
         train_xgboost(xgb_data, hyperparameters)
-        
+
+    if train_rbfn_flag:
+        train_rbfn(xgb_data, hyperparameters)
