@@ -112,7 +112,8 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     
     # Save the model with current date and time
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    model_path = os.path.join(checkpoints_dir, f"transformer_{current_datetime}.pth")
+    
+    model_path = os.path.join(checkpoints_dir, f"transformer_latest.pth") 
     torch.save(model.state_dict(), model_path)
     
     # Save training logs to CSV inside the training_logs folder
@@ -146,17 +147,14 @@ def train_xgboost(xgb_data, hyperparameters):
 
     print(f"XGBoost Results: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
 
-    # Plot predictions
-    plt.figure(figsize=(10, 5))
-    plt.plot(xgb_data["y_val"][:100, 0], label="Actual Torque (Mz1)", color="red")
-    plt.plot(predictions[:100, 0], label="Predicted Torque (Mz1)", color="blue")
-    plt.title("XGBoost Torque Prediction")
-    plt.xlabel("Sample")
-    plt.ylabel("Torque")
-    plt.legend()
-    plt.grid()
-    plt.show()
+     # Save model in checkpoints directory
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
 
+    xgboost_model_path = os.path.join(checkpoints_dir, "xgboost_latest.json")
+    xgb_model.model.save_model(xgboost_model_path)
+    print(f"[INFO] XGBoost model saved at {xgboost_model_path}")
+    
     return xgb_model
 
 # TCN Training Function
@@ -439,11 +437,11 @@ if __name__ == "__main__":
     batch_params = {
         "gap": 10,
         "total_len": 100,
-        "batch_size": 16,
+        "batch_size": 32,
     }
     
     hyperparameters = {
-        "dropout": 0.5,
+        "dropout": 0.3,
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
@@ -451,7 +449,7 @@ if __name__ == "__main__":
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "epochs": 10,
+        "epochs": 3,                  # CHANGE THIS TO 10 LATER
         "n_estimators": 200,
         "max_depth": 6,
 

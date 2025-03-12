@@ -89,15 +89,19 @@ def prepare_dataloaders(batch_params):
     y_train_tensor = torch.tensor(train_seq_y, dtype=torch.float32)
     X_val_tensor = torch.tensor(val_seq_x, dtype=torch.float32)
     y_val_tensor = torch.tensor(val_seq_y, dtype=torch.float32)
+    X_test_tensor = torch.tensor(test_seq_x, dtype=torch.float32)
+    y_test_tensor = torch.tensor(test_seq_y, dtype=torch.float32)
     
     # Data for Transformer (sequence data)
     train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+    test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
     
     train_loader = DataLoader(train_dataset, batch_size=batch_params['batch_size'], shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_params['batch_size'], shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_params['batch_size'], shuffle=False)
     
-     # Data for XGBoost (flattened data)
+    # Data for XGBoost (flattened data)
     X_train_flat = train_seq_x.reshape(train_seq_x.shape[0], -1)
     y_train_flat = train_seq_y
     X_val_flat = val_seq_x.reshape(val_seq_x.shape[0], -1)
@@ -114,7 +118,7 @@ def prepare_dataloaders(batch_params):
         'y_test': y_test_flat
     }
 
-    return train_loader, val_loader, xgb_data, scaler_x, scaler_y
+    return train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y
 
 if __name__ == "__main__":
     batch_params = {
@@ -123,4 +127,4 @@ if __name__ == "__main__":
         "batch_size": 16,
     }
     
-    train_loader, val_loader, xgb_data, scalers = prepare_dataloaders(batch_params)    
+    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
