@@ -167,7 +167,7 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
         output_dim=train_loader.dataset[0][1].shape[-1],
         num_channels=hyperparameters.get("num_channels", [32, 64, 64]),
         kernel_size=hyperparameters.get("kernel_size", 5),
-        dropout=hyperparameters.get("dropout", 0.2),
+        dropout=hyperparameters.get("dropout", 0.3),
         causal=hyperparameters.get("causal", True),
         use_skip_connections=hyperparameters.get("use_skip_connections", False),
         use_norm=hyperparameters.get("use_norm", "weight_norm"),
@@ -175,7 +175,9 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     ).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4))
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
+
+    # optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
 
     best_val_loss = float("inf")
     patience = 5
@@ -224,7 +226,7 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
 
         print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-        if val_loss < best_val_loss:
+        if val_loss < best_val_loss - 1e-5:
             best_val_loss = val_loss
             patience_counter = 0
             checkpoint_dir = os.path.join(project_root, "checkpoints")
@@ -256,6 +258,7 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     print(f"Training logs saved at: {log_path}")   
 
 
+#Training CNN-LSTM
 def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
     print("Training CNN-LSTM")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -266,12 +269,12 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
         seq_len=batch_params['total_len'] // batch_params['gap'],
         cnn_filters=hyperparameters.get("cnn_filters", 32),
         lstm_hidden=hyperparameters.get("lstm_hidden", 32),
-        dropout=hyperparameters.get("dropout", 0.1),
+        dropout=hyperparameters.get("dropout", 0.3),
         dense_units=hyperparameters.get("dense_units", 256)
     ).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4))
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
 
     best_val_loss = float("inf")
     patience = 5
@@ -314,7 +317,7 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
 
         print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-        if val_loss < best_val_loss:
+        if val_loss < best_val_loss - 1e-5:
             best_val_loss = val_loss
             patience_counter = 0
             checkpoint_dir = os.path.join(project_root, "checkpoints")
@@ -345,6 +348,7 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
     df_logs.to_csv(log_path, index=False)
     print(f"Training logs saved at: {log_path}")
 
+#Training LSTM
 def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     print("Training LSTM")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -359,7 +363,7 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     ).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4))
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
 
     best_val_loss = float("inf")
     patience = 5
@@ -402,7 +406,7 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
 
         print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-        if val_loss < best_val_loss:
+        if val_loss < best_val_loss - 1e-5:
             best_val_loss = val_loss
             patience_counter = 0
             checkpoint_dir = os.path.join(project_root, "checkpoints")
