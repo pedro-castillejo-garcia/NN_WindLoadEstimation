@@ -229,7 +229,7 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
             patience_counter = 0
             checkpoint_dir = os.path.join(project_root, "checkpoints")
             os.makedirs(checkpoint_dir, exist_ok=True)
-            torch.save(model.state_dict(), os.path.join(checkpoint_dir, "tcn_best.pth"))
+            torch.save(model.state_dict(), os.path.join(checkpoint_dir, "tcn_latest.pth"))
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -319,7 +319,7 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
             patience_counter = 0
             checkpoint_dir = os.path.join(project_root, "checkpoints")
             os.makedirs(checkpoint_dir, exist_ok=True)
-            torch.save(model.state_dict(), os.path.join(checkpoint_dir, "cnn_lstm_best.pth"))
+            torch.save(model.state_dict(), os.path.join(checkpoint_dir, "cnn_lstm_latest.pth"))
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -407,7 +407,7 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
             patience_counter = 0
             checkpoint_dir = os.path.join(project_root, "checkpoints")
             os.makedirs(checkpoint_dir, exist_ok=True)
-            torch.save(model.state_dict(), os.path.join(checkpoint_dir, "lstm_best.pth"))
+            torch.save(model.state_dict(), os.path.join(checkpoint_dir, "lstm_latest.pth"))
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -470,7 +470,7 @@ if __name__ == "__main__":
     }
     
     # Load preprocessed data
-    train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
@@ -478,8 +478,8 @@ if __name__ == "__main__":
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
     train_tcn_flag = False 
-    train_cnnlstm_flag = True
-    train_lstm_flag = False
+    train_cnnlstm_flag = False
+    train_lstm_flag = True
 
     # Train Transformer if flag is set
     if train_transformer_flag:
