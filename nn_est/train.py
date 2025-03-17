@@ -21,6 +21,7 @@ sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
 from models.XGBoost import XGBoostModel
+from models.FFNN import FFNNModel
 
 # Define EarlyStopping class
 class EarlyStopping:
@@ -154,6 +155,74 @@ def train_xgboost(xgb_data, hyperparameters):
     
     return xgb_model
 
+def train_ffnn(batch_params, hyperparameters):
+    print("Training FFNN")
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    train_loader, val_loader, _, _, _, _ = prepare_dataloaders(batch_params)
+    
+    model = FFNNModel(
+        input_dim=train_loader.dataset[0][0].shape[-1],
+        output_dim=train_loader.dataset[0][1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap'],
+        dropout=hyperparameters['dropout']
+    )
+    model.to(device)
+    
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=hyperparameters['learning_rate'])
+    
+    train_losses, val_losses = [], []
+    
+    for epoch in range(hyperparameters['epochs']):
+        model.train()
+        train_loss = 0.0
+        for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            
+            optimizer.zero_grad()
+            predictions = model(X_batch)
+            loss = criterion(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+        
+        train_loss /= len(train_loader)
+        train_losses.append(train_loss)
+        
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                predictions = model(X_batch)
+                loss = criterion(predictions, y_batch)
+                val_loss += loss.item()
+        
+        val_loss /= len(val_loader)
+        val_losses.append(val_loss)
+        
+        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+    
+    # Create directories if they don't exist
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Save the model with current date and time
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    
+    model_path = os.path.join(checkpoints_dir, f"ffnn_latest.pth") 
+    torch.save(model.state_dict(), model_path)
+    
+    # Save training logs to CSV inside the training_logs folder
+    log_path = os.path.join(logs_dir, f"ffnn_training_logs_{current_datetime}.csv")
+    logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
+    logs_df.to_csv(log_path, index=False)
+    print(f"Training logs saved as {log_path}")
+    
+
 # MAYBE HAVE ONE hyperparameters DICT PER MODEL
 if __name__ == "__main__":              
     batch_params = {
@@ -163,16 +232,17 @@ if __name__ == "__main__":
     }
     
     hyperparameters = {
+        "epochs": 3,
         "dropout": 0.3,
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
         "dim_feedforward": 256,
         "layer_norm_eps": 1e-5,
-        "learning_rate": 1e-4,
+        "learning_rate": 0.01,
         "weight_decay": 1e-4,
-        "n_estimators": 300,
-        "max_depth": 8,
+        "n_estimators": 1000,
+        "max_depth": 10,
         "subsample": 0.8,
         "colsample_bytree": 0.8,     
         "gamma": 0.1,  
@@ -184,7 +254,8 @@ if __name__ == "__main__":
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
     train_transformer_flag = False  # Set to True to train Transformer
-    train_xgboost_flag = True  # Set to True to train XGBoost
+    train_xgboost_flag = False  # Set to True to train XGBoost
+    train_ffnn_flag = True  # Set to True to train FFNN
 
     # Train Transformer if flag is set
     if train_transformer_flag:
@@ -193,4 +264,8 @@ if __name__ == "__main__":
     # Train XGBoost if flag is set
     if train_xgboost_flag:
         train_xgboost(xgb_data, hyperparameters)
+        
+    # Train FFNN if flag is set
+    if train_ffnn_flag:
+        train_ffnn(batch_params, hyperparameters)    
         

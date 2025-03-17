@@ -18,6 +18,7 @@ sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
 from models.XGBoost import XGBoostModel
+from models.FFNN import FFNNModel
 
 def evaluate_transformer(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
@@ -109,7 +110,7 @@ def evaluate_transformer(batch_params, hyperparameters, model_name):
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
 
     # Call the separate plot function
-    plot_results(y_true, y_pred, scaler_y, project_root, model_name="transformer_latest.pth", model_type="Transformer")
+    plot_results(y_true, y_pred, scaler_y, model_name, "Transformer")
 
     return mse
 
@@ -150,11 +151,6 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
 
     print(f"[INFO] XGBoost Model MSE: {mse}")
 
-    # Prepare time-aligned data for plotting
-    # total_len = batch_params["total_len"]
-    #t_test = np.arange(len(inversed_true))  # Assuming time is based on index
-    # t_test_aligned = t_test[total_len - 1:]  # Align time with the sequences
-
     # Save MSE results
     logs_dir = os.path.join(project_root, "logs", "test_logs")
     os.makedirs(logs_dir, exist_ok=True)
@@ -169,15 +165,58 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
 
     # Plot results
-    plot_results(xgb_data["y_test"], y_pred, scaler_y, project_root, model_name, "XGBoost")
+    plot_results(xgb_data["y_test"], y_pred, scaler_y, model_name, "XGBoost")
 
     return mse
 
-def plot_results(y_true, y_pred, scaler_y, project_root, model_name, model_type):
+def evaluate_ffnn(batch_params, hyperparameters, model_name):
+    print("Evaluating FFNN")
+
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    ffnn_model = FFNNModel(
+        input_dim=test_loader.dataset[0][0].shape[-1],
+        output_dim=test_loader.dataset[0][1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap']
+    )
+    
+    # Load model weights if saved
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    model_path = os.path.join(checkpoints_dir, model_name)
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] FFNN model file {model_name} not found in {checkpoints_dir}")
+
+    ffnn_model.load_state_dict(torch.load(model_path, map_location=device))  # Correct way to load model weights
+    ffnn_model.to(device)
+    ffnn_model.eval()
+    
+    all_preds, all_targets = [], []
+    with torch.no_grad():
+        for X_batch, y_batch in test_loader:
+            X_batch = X_batch.to(device)
+            predictions = ffnn_model(X_batch).cpu().numpy()
+            all_preds.append(predictions)
+            all_targets.append(y_batch.numpy())
+
+    y_pred = scaler_y.inverse_transform(np.concatenate(all_preds, axis=0))
+    y_true = scaler_y.inverse_transform(np.concatenate(all_targets, axis=0))
+    
+    mse = ((y_pred - y_true) ** 2).mean()
+    print(f"FFNN Evaluation MSE: {mse:.4f}")
+    
+    # Ensure plot_results function is correctly defined
+    plot_results(y_true, y_pred, scaler_y, model_name, "FFNN")
+    
+def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
     
-    plots_dir = os.path.join(project_root, "plots")
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))  # Get main project root
+    plots_dir = os.path.join(project_root, "plots")  # Ensure plots go into the main project root
     os.makedirs(plots_dir, exist_ok=True)
 
     # Inverse transform to restore original scale of torque values
@@ -228,21 +267,27 @@ if __name__ == "__main__":
         "weight_decay": 1e-4,
         "n_estimators": 300,
         "max_depth": 8,
-        "subsample": 0.8,            # Use 80% of data per boosting round
-        "colsample_bytree": 0.8,     # Use 80% of features per tree
+        "subsample": 0.8,       
+        "colsample_bytree": 0.8,     
         "gamma": 0.1,  
     }
     
     # Set model names
     transformer_model_name = "transformer_latest.pth"
     xgboost_model_name = "xgboost_latest.json"
+    ffnn_model_name = "ffnn_latest.pth"
 
     # Choose which model to evaluate
-    evaluate_transformer_flag = False
+    evaluate_transformer_flag = True
     evaluate_xgboost_flag = True
+    evaluate_ffnn_flag = True
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
 
     if evaluate_xgboost_flag:
         evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
+        
+    if evaluate_ffnn_flag:
+        evaluate_ffnn(batch_params, hyperparameters, ffnn_model_name)
+        
