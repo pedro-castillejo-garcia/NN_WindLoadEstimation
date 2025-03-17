@@ -278,8 +278,8 @@ if __name__ == "__main__":
     ffnn_model_name = "ffnn_latest.pth"
 
     # Choose which model to evaluate
-    evaluate_transformer_flag = True
-    evaluate_xgboost_flag = True
+    evaluate_transformer_flag = False
+    evaluate_xgboost_flag = False
     evaluate_ffnn_flag = True
 
     if evaluate_transformer_flag:

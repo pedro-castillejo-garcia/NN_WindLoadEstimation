@@ -170,7 +170,7 @@ def train_ffnn(batch_params, hyperparameters):
     model.to(device)
     
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=hyperparameters['learning_rate'])
+    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=1e-4)
     
     train_losses, val_losses = [], []
     
@@ -232,14 +232,14 @@ if __name__ == "__main__":
     }
     
     hyperparameters = {
-        "epochs": 3,
+        "epochs": 4,
         "dropout": 0.3,
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
         "dim_feedforward": 256,
         "layer_norm_eps": 1e-5,
-        "learning_rate": 0.01,
+        "learning_rate": 0.001,
         "weight_decay": 1e-4,
         "n_estimators": 1000,
         "max_depth": 10,
