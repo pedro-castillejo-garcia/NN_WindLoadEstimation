@@ -1,19 +1,34 @@
+"""
+train_pretrained.py
+
+This script illustrates how to adapt and fine-tune a pretrained Hugging Face MobileBERT
+model for a time-series forecasting problem using your existing project structure.
+"""
+
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 import numpy as np
-import os
-import sys
+import pandas as pd
+from datetime import datetime
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from features import prepare_dataloaders  # Your data loading utilities
+# Make sure to install transformers if you haven't:
+# pip install transformers
+from transformers import MobileBertModel, MobileBertConfig
 
-# Import the data loading function
-from features import load_data
+# ------------------------------------------------------------------------------------
+# Adjust these paths according to your project structure
+# ------------------------------------------------------------------------------------
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, ".."))
+sys.path.append(project_root)
 
-# NEW: Import from Hugging Face
-from transformers import TimeSeriesTransformerConfig, TimeSeriesTransformerModel
-
-
-# Define EarlyStopping class (unchanged)
+# ------------------------------------------------------------------------------------
+# EarlyStopping class (as you used in train.py)
+# ------------------------------------------------------------------------------------
 class EarlyStopping:
     def __init__(self, patience=10, delta=0.001):
         self.patience = patience
@@ -31,184 +46,199 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.early_stop = True
 
-                
-# A small regression head to map from d_model -> your 3 targets
-class RegressionHead(nn.Module):
-    def __init__(self, d_model, output_dim):
+# ------------------------------------------------------------------------------------
+# MobileBertTimeSeries model
+# ------------------------------------------------------------------------------------
+from transformers import MobileBertConfig, MobileBertModel
+
+class MobileBertTimeSeries(nn.Module):
+    def __init__(self, pretrained_name: str, input_dim: int, output_dim: int):
         super().__init__()
-        self.linear = nn.Linear(d_model, output_dim)
+        
+        # 1) Create config and override embedding_size = hidden_size
+        self.config = MobileBertConfig.from_pretrained(pretrained_name)
+        self.config.embedding_size = self.config.hidden_size  # both = 512
+
+        # 2) Load model with updated config
+        self.mobilebert = MobileBertModel.from_pretrained(pretrained_name, config=self.config, ignore_mismatched_sizes=True)
+
+        # 3) Freeze MobileBERT
+        for param in self.mobilebert.parameters():
+            param.requires_grad = False
+
+        # 4) Now MobileBERT’s embeddings expect shape [batch_size, seq_len, 512]
+        self.input_proj = nn.Linear(input_dim, self.config.hidden_size)  # 512
+        self.regressor = nn.Linear(self.config.hidden_size, output_dim)
 
     def forward(self, x):
-        # x: (batch_size, seq_len, d_model) or (batch_size, d_model)
-        return self.linear(x)
+        # x: [batch_size, seq_len, input_dim]
+        input_embeds = self.input_proj(x)  # -> [batch_size, seq_len, 512]
+        attention_mask = torch.ones(input_embeds.shape[:2], dtype=torch.long, device=x.device)
+        outputs = self.mobilebert(inputs_embeds=input_embeds, attention_mask=attention_mask)
+        pooled_output = outputs.pooler_output  # shape [batch_size, 512]
+        return self.regressor(pooled_output)
 
+# ------------------------------------------------------------------------------------
+# Training Function
+# ------------------------------------------------------------------------------------
+def train_pretrained(train_loader, val_loader, batch_params, hyperparams):
+    """
+    Train MobileBertTimeSeries model for time-series forecasting, freezing the
+    pretrained MobileBERT weights and only training the new input projection
+    and regression head.
+    """
+    print("Training MobileBERT (Pretrained) for Time-Series Forecasting")
 
-def train_model(train_loader, val_loader, hyperparameters):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    ##################################################
-    # 1) Create a Hugging Face TimeSeriesTransformer
-    ##################################################
-    # Because you have 10 time steps total (in X_batch),
-    # you can treat them all as 'context_length'=10
-    # and 'prediction_length'=1 (just forecasting the final step).
-    # This is single-step forecasting for 3 target variables.
-    #
-    # input_size=12 means each time-step is 12-dimensional.
-    #
-    # We'll also set num_encoder_layers=num_decoder_layers=2
-    # to mimic your old "num_layers=2" in the custom model.
-    ##################################################
+    # Example: input_dim and output_dim can be derived from train_loader
+    #   - We assume each batch is: (X_batch, y_batch)
+    #   - X_batch shape: [batch_size, seq_len, input_dim]
+    #   - y_batch shape: [batch_size, output_dim]
+    example_X, example_y = next(iter(train_loader))
+    input_dim = example_X.shape[-1]
+    output_dim = example_y.shape[-1]
 
-    config = TimeSeriesTransformerConfig(
-        prediction_length=1,
-        context_length=10,
-        input_size=12,            # 12 input features
-        num_encoder_layers=hyperparameters['num_layers'],
-        num_decoder_layers=hyperparameters['num_layers'],
-        d_model=hyperparameters['d_model'],
-        n_head=hyperparameters['nhead'],
-        dim_feedforward=hyperparameters['dim_feedforward'],
-        dropout=hyperparameters['dropout'],
-        # layer_norm_eps can be set if you like:
-        # layer_norm_eps=hyperparameters['layer_norm_eps'],
-    )
+    # Initialize the model
+    model = MobileBertTimeSeries(
+        pretrained_name="google/mobilebert-uncased",  # or any MobileBERT variant
+        input_dim=input_dim,
+        output_dim=output_dim
+    ).to(device)
 
-    # Build the TimeSeriesTransformerModel
-    model = TimeSeriesTransformerModel(config)
+    # We only train the projection + regressor layers
+    # (mobilebert.* were already frozen)
+    params_to_train = [p for p in model.parameters() if p.requires_grad]
 
-    # Build a small linear head for 3 targets
-    regression_head = RegressionHead(d_model=hyperparameters['d_model'],
-                                     output_dim=train_loader.dataset[0][1].shape[-1])
-
-    model.to(device)
-    regression_head.to(device)
-
-    # Define MSE loss and optimizer (AdamW)
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(
-        list(model.parameters()) + list(regression_head.parameters()),
-        lr=hyperparameters['learning_rate'],
-        weight_decay=hyperparameters['weight_decay']
+        params_to_train,
+        lr=hyperparams['learning_rate'],
+        weight_decay=hyperparams['weight_decay']
     )
-    
-    early_stopping = EarlyStopping(patience=5, delta=1e-5)
 
-    train_losses, val_losses = [], []
+    # Optional early stopping
+    early_stopping = EarlyStopping(patience=5, delta=0.00001)
 
-    for epoch in range(hyperparameters['epochs']):
-        ##################################################
-        # Training Loop
-        ##################################################
+    train_losses = []
+    val_losses = []
+
+    for epoch in range(hyperparams['epochs']):
         model.train()
-        regression_head.train()
-        train_loss = 0.0
+        running_train_loss = 0.0
 
         for X_batch, y_batch in train_loader:
-            # X_batch: (batch_size, 10, 12)
-            # y_batch: (batch_size, 3)
-            X_batch = X_batch.to(device)
-            y_batch = y_batch.to(device)
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
 
             optimizer.zero_grad()
-
-            # Forward pass
-            # We'll feed all 10 steps as "past_values" (context),
-            # and *no* future_values since it's single-step prediction.
-            outputs = model(past_values=X_batch)
-            # outputs.last_hidden_state: (batch_size, 10, d_model)
-
-            # We only want the final time-step's hidden state:
-            hidden_final_step = outputs.last_hidden_state[:, -1, :]  # (batch_size, d_model)
-
-            # Map hidden state -> 3 target values
-            predictions = regression_head(hidden_final_step)  # (batch_size, 3)
-
+            predictions = model(X_batch)
             loss = criterion(predictions, y_batch)
             loss.backward()
             optimizer.step()
+            running_train_loss += loss.item()
 
-            train_loss += loss.item()
-
-        train_loss /= len(train_loader)
+        train_loss = running_train_loss / len(train_loader)
         train_losses.append(train_loss)
 
-        ##################################################
-        # Validation Loop
-        ##################################################
+        # Validation
         model.eval()
-        regression_head.eval()
-        val_loss = 0.0
-
+        running_val_loss = 0.0
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
-                X_batch = X_batch.to(device)
-                y_batch = y_batch.to(device)
-
-                outputs = model(past_values=X_batch)
-                hidden_final_step = outputs.last_hidden_state[:, -1, :]
-                predictions = regression_head(hidden_final_step)
-
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                predictions = model(X_batch)
                 loss = criterion(predictions, y_batch)
-                val_loss += loss.item()
+                running_val_loss += loss.item()
 
-        val_loss /= len(val_loader)
+        val_loss = running_val_loss / len(val_loader)
         val_losses.append(val_loss)
 
-        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, "
+        print(f"Epoch {epoch+1}/{hyperparams['epochs']}, "
               f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-        # Early stopping
         early_stopping(val_loss)
         if early_stopping.early_stop:
             print("Early stopping triggered. Stopping training.")
             break
 
-    ##################################################
-    # Plot training vs. validation loss
-    ##################################################
-    plt.figure(figsize=(10, 5))
-    plt.plot(range(1, len(train_losses) + 1), train_losses, label='Training Loss')
-    plt.plot(range(1, len(val_losses) + 1), val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss Over Epochs')
-    plt.legend()
-    plt.grid()
-    plt.show()
+    # Save checkpoint and training logs
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
 
-    ##################################################
-    # Save the model + head
-    ##################################################
-    torch.save({
-        "transformer_config": config.to_dict(),
-        "transformer_state_dict": model.state_dict(),
-        "regression_head_state_dict": regression_head.state_dict()
-    }, "hf_transformer_model.pth")
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    print("Model saved as hf_transformer_model.pth")
+    model_path = os.path.join(checkpoints_dir, "mobilebert_latest.pth")
+    torch.save(model.state_dict(), model_path)
+    print(f"[INFO] Model checkpoint saved at {model_path}")
 
+    log_path = os.path.join(logs_dir, f"mobilebert_training_logs_{current_datetime}.csv")
+    logs_df = pd.DataFrame({
+        "Epoch": range(1, len(train_losses) + 1),
+        "Train Loss": train_losses,
+        "Val Loss": val_losses
+    })
+    logs_df.to_csv(log_path, index=False)
+    print(f"[INFO] Training logs saved at {log_path}")
 
+    return model
+
+# ------------------------------------------------------------------------------------
+# Main script entry point
+# ------------------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Same batch/sequence parameters as before
+
+    # Example batch parameters (adapt as needed)
     batch_params = {
         "gap": 10,
         "total_len": 100,
-        "batch_size": 16,
+        "batch_size": 32,
     }
 
-    # Hyperparameters for your HF transformer
-    hyperparameters = {
-        "dropout": 0.5,
-        "d_model": 64,
-        "nhead": 4,
-        "num_layers": 2,
-        "dim_feedforward": 256,
-        "layer_norm_eps": 1e-5,
+    # Example hyperparameters
+    hyperparams = {
+        "epochs": 100,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "epochs": 10,
     }
 
-    train_loader, val_loader, _, _ = load_data(batch_params)
-    train_model(train_loader, val_loader, hyperparameters)
+    # Prepare Data
+    train_loader, val_loader, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+
+    # Train the MobileBERT-based model
+    model = train_pretrained(train_loader, val_loader, batch_params, hyperparams)
+
+    # # -------------------------------------------------------------------------
+    # # (Optional) Evaluate on the test set
+    # # -------------------------------------------------------------------------
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # model.eval()
+    # model.to(device)
+
+    # criterion = nn.MSELoss()
+    # test_loss = 0.0
+    # all_preds = []
+    # all_targets = []
+
+    # with torch.no_grad():
+    #     for X_batch, y_batch in test_loader:
+    #         X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+    #         preds = model(X_batch)
+    #         loss = criterion(preds, y_batch)
+    #         test_loss += loss.item()
+
+    #         # Store for evaluation metrics
+    #         all_preds.append(preds.cpu().numpy())
+    #         all_targets.append(y_batch.cpu().numpy())
+
+    # test_loss /= len(test_loader)
+    # all_preds = np.vstack(all_preds)
+    # all_targets = np.vstack(all_targets)
+
+    # rmse = np.sqrt(mean_squared_error(all_targets, all_preds))
+    # mae = mean_absolute_error(all_targets, all_preds)
+    # r2 = r2_score(all_targets, all_preds)
+
+    # print(f"\n[TEST RESULTS] Loss: {test_loss:.4f} | RMSE: {rmse:.4f}, "
+    #       f"MAE: {mae:.4f}, R²: {r2:.4f}")
