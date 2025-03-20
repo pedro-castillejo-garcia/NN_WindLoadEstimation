@@ -3,6 +3,9 @@ import torch
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import tensorflow as tf
+from models.RBF_Keras import RBFLayer  # hvis du har brug for custom_objects
+
 from datetime import datetime
 from sklearn.metrics import mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
@@ -17,7 +20,7 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
-from models.XGBoost import XGBoostModel
+#from models.XGBoost import XGBoostModel
 from models.RadialBasisFunctionModel import RBFN_model
 
 
@@ -114,7 +117,7 @@ def evaluate_transformer(batch_params, hyperparameters, model_name):
     plot_results(y_true, y_pred, scaler_y, project_root, model_name="transformer_latest.pth", model_type="Transformer")
 
     return mse
-
+"""
 def evaluate_xgboost(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating XGBoost model...")
 
@@ -167,6 +170,7 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     plot_results(inversed_true, inversed_pred, scaler_y, project_root, model_name="xgboost_latest.json", model_type="XGBoost")
 
     return mse
+"""
 
 def evaluate_rbf(batch_params, hyperparameters, model_name="rbfn_latest.npz"):
     print("[INFO] Evaluating RBFN model...")
@@ -228,6 +232,60 @@ def evaluate_rbf(batch_params, hyperparameters, model_name="rbfn_latest.npz"):
     plot_results_rbf(y_test, y_pred, scaler_y, project_root, model_name=model_name, model_type="RBFN")
     
     return mse
+
+
+def evaluate_rbf_keras(batch_params, hyperparameters, model_name="rbfn_keras_latest.keras"):
+    print("[INFO] Evaluating Keras-RBFN model...")
+
+    # load test data
+    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    X_test = xgb_data["X_test"]
+    y_test = xgb_data["y_test"]
+    print(f"[INFO] Test data shape: X={X_test.shape}, y={y_test.shape}")
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, ".."))
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    model_path = os.path.join(checkpoints_dir, model_name)
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] Keras-RBFN model file {model_name} not found in {checkpoints_dir}")
+
+    # For at loade custom-lag:
+    # custom_objects = {"RBFLayer": RBFLayer} – ellers kender TF ikke din custom-lag
+    loaded_model = tf.keras.models.load_model(model_path, custom_objects={"RBFLayer": RBFLayer})
+    print("[INFO] Keras-RBFN model loaded successfully.")
+
+    # predict
+    y_pred = loaded_model.predict(X_test)
+
+    # evaluate
+    inversed_true = scaler_y.inverse_transform(y_test)
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    mse = mean_squared_error(inversed_true, inversed_pred)
+    print(f"[INFO] Computed Keras-RBFN MSE on test: {mse}")
+
+    # log & plot
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"rbfn_keras_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+
+    # Du kan genbruge dit plot_results_rbf eller lign.:
+    plot_results_rbf(y_test, y_pred, scaler_y, project_root,
+                     model_name=model_name, model_type="Keras-RBFN")
+    
+    return mse
+
+
+
 
 # a plot function for rbf features/nature
 def plot_results_rbf(y_true, y_pred, scaler_y, project_root, model_name, model_type):
@@ -344,4 +402,5 @@ if __name__ == "__main__":
         evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
 
     if evaluate_rbfn_flag:
-        evaluate_rbf(batch_params, hyperparameters, rbfn_model_name)
+        #evaluate_rbf(batch_params, hyperparameters, rbfn_model_name)
+        evaluate_rbf_keras(batch_params, hyperparameters, "rbfn_keras_latest.keras")

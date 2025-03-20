@@ -7,6 +7,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import tensorflow as tf
+import keras as keras
+from tensorflow.keras.callbacks import EarlyStopping
+
+
+
 
 from datetime import datetime
 from features import load_data
@@ -19,10 +25,14 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 # Add project root to sys.path
 sys.path.append(project_root)
 
+#rbf+keras
+from models.RBF_Keras import initialize_centroids, build_rbf_model  # fx
+
 from models.Transformer import TransformerModel
 #from models.XGBoost import XGBoostModel
 from models.RadialBasisFunctionModel import RBFN_model
 # Define EarlyStopping class
+"""
 class EarlyStopping:
     def __init__(self, patience=10, delta=0.001):
         self.patience = patience
@@ -38,7 +48,8 @@ class EarlyStopping:
         else:
             self.counter += 1
             if self.counter >= self.patience:
-                self.early_stop = True
+                self.early_stop = True"
+"""
 
 # Define training function
 def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
@@ -167,7 +178,7 @@ def train_rbfn(xgb_data, hyperparameters):
     #  setting parameters
     input_dim  = X_train.shape[1]
     output_dim = y_train.shape[1]
-    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 50)
+    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 100)
     learning_rate      = hyperparameters.get("learning_rate", 0.01)
     epochs             = hyperparameters.get("epochs", 10)
     
@@ -214,6 +225,88 @@ def train_rbfn(xgb_data, hyperparameters):
 
     return model
 
+def train_rbf_keras(xgb_data, hyperparameters):
+    print("[INFO] Training RBFN (Keras version)")
+
+    # getting data
+    X_train = xgb_data["X_train"]
+    y_train = xgb_data["y_train"]
+    X_val   = xgb_data["X_val"]
+    y_val   = xgb_data["y_val"]
+
+    # setting parameters
+    input_dim  = X_train.shape[1]
+    output_dim = y_train.shape[1]
+    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 100)
+    learning_rate      = hyperparameters.get("learning_rate", 0.01)
+    epochs             = hyperparameters.get("epochs", 10)
+    batch_size         = 32  # eller læs det fra dine hyperparametre
+
+    # KMeans initialization for centroids
+    centroids_init = initialize_centroids(X_train, num_hidden_neurons)
+
+    # Build Keras model
+    model = build_rbf_model(input_dim, num_hidden_neurons, output_dim,
+                            initial_centroids=centroids_init)
+
+    # Compile model
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    model.compile(optimizer=optimizer, loss='mse')
+
+    # Early stopping
+    patience = 5
+    es_callback = EarlyStopping(monitor='val_loss', patience=patience, restore_best_weights=True)
+
+    # Fit model
+    history = model.fit(
+        X_train, y_train,
+        validation_data=(X_val, y_val),
+        epochs=epochs,
+        batch_size=batch_size,
+        callbacks=[es_callback],
+        verbose=1
+    )
+
+    # Train & validation losses
+    train_losses = history.history['loss']
+    val_losses   = history.history['val_loss']
+
+    # Evaluate on val
+    val_pred = model.predict(X_val)
+    val_mse = mean_squared_error(y_val, val_pred)
+    val_rmse = np.sqrt(val_mse)
+    print(f"[INFO] Keras-RBFN Validation: MSE={val_mse:.4f}, RMSE={val_rmse:.4f}")
+
+    
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, ".."))
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    model_path = os.path.join(checkpoints_dir, "rbfn_keras_latest.keras")
+    
+    model.save(model_path)
+    print(f"[INFO] Keras-RBFN model saved at {model_path}")
+
+    # Logging training
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"rbfn_keras_training_logs_{current_datetime}.csv")
+
+    logs_df = pd.DataFrame({
+        "Epoch": range(1, len(train_losses)+1),
+        "Train Loss": train_losses,
+        "Val Loss": val_losses
+    })
+    logs_df.to_csv(log_path, index=False)
+    print(f"[INFO] Keras-RBFN training logs saved at {log_path}")
+
+    return model
+
+
+
+
 
 if __name__ == "__main__":
     batch_params = {
@@ -254,7 +347,7 @@ if __name__ == "__main__":
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_rbfn_flag = True  # Set to True to train rbfn
+    train_rbfn_flag = True  # vil nu betyde: "kør Keras RBF"
 
 
     # Train Transformer if flag is set
@@ -266,4 +359,6 @@ if __name__ == "__main__":
         train_xgboost(xgb_data, hyperparameters)
 
     if train_rbfn_flag:
-        train_rbfn(xgb_data, hyperparameters)
+        #train_rbfn(xgb_data, hyperparameters)
+        train_rbf_keras(xgb_data, hyperparameters)
+   

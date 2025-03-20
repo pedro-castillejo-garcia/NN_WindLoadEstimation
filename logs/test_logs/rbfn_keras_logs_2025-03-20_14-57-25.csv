@@ -1,0 +1,11 @@
+Metric,Value
+MSE,58.88665214243864
+dropout,0.3
+d_model,64.0
+nhead,4.0
+num_layers,2.0
+dim_feedforward,256.0
+layer_norm_eps,1e-05
+weight_decay,0.0001
+num_hidden_neurons,100.0
+learning_rate,0.01

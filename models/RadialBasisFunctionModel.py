@@ -54,14 +54,28 @@ class RBFN_model:
             grad_betas = np.zeros_like(self.betas)
             
             for j in range(self.num_hidden_neurons):
-                diff = X - self.centroids[j]
-                grad_centroids[j] = -2 * self.betas[j] * (
-                    (y - y_pred).T @ (G[:, j][:, None] * diff)
-                ).sum(axis=0) / X.shape[0]
-                grad_betas[j] = -2 * (
-                    (y - y_pred).T @ (G[:, j] * np.linalg.norm(diff, axis=1)**2)
-                ).sum() / X.shape[0]
-            
+                diff = X - self.centroids[j]                      # shape: (N, D)
+                r_sq = np.sum(diff**2, axis=1)                   # shape: (N,)
+                
+                # Summér (y - y_pred)*de tilsvarende weights op over output-dimensionen
+                err_times_weights = np.sum((y - y_pred) * self.weights[j], axis=1)  # (N,)
+
+                # ---------- GRADIENT WRT CENTROIDS ----------
+                # Her skal du have -4 i stedet for -2
+                grad_centroids[j] = (
+                    -4 * self.betas[j] / X.shape[0]
+                ) * np.sum(
+                    err_times_weights[:, None] * G[:, j][:, None] * diff,
+                    axis=0
+                )
+
+                # ---------- GRADIENT WRT BETAS ----------
+                # Her er fortegnet negativt (fordi afledningen er -r^2 * g_j)
+                grad_betas[j] = (
+                    -2 / X.shape[0]
+                ) * np.sum(
+                    err_times_weights * r_sq * G[:, j]
+                )
             # Parameter-updates
             self.weights -= self.learning_rate * grad_weights
             self.centroids -= self.learning_rate * grad_centroids
