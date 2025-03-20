@@ -19,6 +19,7 @@ sys.path.append(project_root)
 from models.Transformer import TransformerModel
 from models.XGBoost import XGBoostModel
 from models.FFNN import FFNNModel
+from models.OneLayerNN import OneLayerNN
 
 def evaluate_transformer(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
@@ -100,7 +101,7 @@ def evaluate_transformer(batch_params, hyperparameters, model_name):
     logs_dir = os.path.join(project_root, "logs", "test_logs")
     os.makedirs(logs_dir, exist_ok=True)
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"transformer_logs_{current_datetime}.csv")
+    mse_log_path = os.path.join(logs_dir, f"transformer_test_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
         "Metric": ["MSE"] + list(hyperparameters.keys()),
@@ -155,7 +156,7 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     logs_dir = os.path.join(project_root, "logs", "test_logs")
     os.makedirs(logs_dir, exist_ok=True)
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"xg_boost_logs_{current_datetime}.csv")
+    mse_log_path = os.path.join(logs_dir, f"xg_boost_test_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
         "Metric": ["MSE"] + list(hyperparameters.keys()),
@@ -208,9 +209,61 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
     mse = ((y_pred - y_true) ** 2).mean()
     print(f"FFNN Evaluation MSE: {mse:.4f}")
     
+    # Save MSE results
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"ffnn_test_logs_{current_datetime}.csv")
+    
     # Ensure plot_results function is correctly defined
     plot_results(y_true, y_pred, scaler_y, model_name, "FFNN")
+  
+def evaluate_one_layer_nn(batch_params, model_name):
+    print("Evaluating One-Layer NN")
     
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    
+    one_layer_nn_model = OneLayerNN(
+        input_dim=test_loader.dataset[0][0].shape[-1],
+        output_dim=test_loader.dataset[0][1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap']
+    )
+    
+    # Load model weights if saved
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    model_path = os.path.join(checkpoints_dir, model_name)
+    
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] One-Layer NN model file {model_name} not found in {checkpoints_dir}")
+    
+    one_layer_nn_model.load_state_dict(torch.load(model_path, map_location=device))
+    one_layer_nn_model.to(device)
+    one_layer_nn_model.eval()
+    
+    all_preds, all_targets = [], []
+    with torch.no_grad():
+        for X_batch, y_batch in test_loader:
+            X_batch = X_batch.to(device)
+            predictions = one_layer_nn_model(X_batch).cpu().numpy()
+            all_preds.append(predictions)
+            all_targets.append(y_batch.numpy())
+    
+    y_pred = scaler_y.inverse_transform(np.concatenate(all_preds, axis=0))
+    y_true = scaler_y.inverse_transform(np.concatenate(all_targets, axis=0))
+    
+    mse = ((y_pred - y_true) ** 2).mean()
+    print(f"One-Layer NN Evaluation MSE: {mse:.4f}")
+    
+    # Save MSE results
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"one_layer_nn_test_logs_{current_datetime}.csv")
+    
+    # Ensure plot_results function is correctly defined
+    plot_results(y_true, y_pred, scaler_y, model_name, "One_Layer_NN")
+
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
@@ -257,7 +310,7 @@ if __name__ == "__main__":
     }
 
     hyperparameters = {
-        "dropout": 0.3,
+        "dropout": 0.2,
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
@@ -276,11 +329,13 @@ if __name__ == "__main__":
     transformer_model_name = "transformer_latest.pth"
     xgboost_model_name = "xgboost_latest.json"
     ffnn_model_name = "ffnn_latest.pth"
+    one_layer_nn_model_name = "one_layer_nn_latest.pth"
 
     # Choose which model to evaluate
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
     evaluate_ffnn_flag = True
+    evaluate_one_layer_nn_flag = False
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
@@ -290,4 +345,7 @@ if __name__ == "__main__":
         
     if evaluate_ffnn_flag:
         evaluate_ffnn(batch_params, hyperparameters, ffnn_model_name)
+    
+    if evaluate_one_layer_nn_flag:
+        evaluate_one_layer_nn(batch_params, one_layer_nn_model_name)
         
