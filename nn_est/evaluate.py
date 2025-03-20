@@ -284,7 +284,40 @@ def evaluate_rbf_keras(batch_params, hyperparameters, model_name="rbfn_keras_lat
     
     return mse
 
+def evaluate_cnn(batch_params, hyperparameters, model_name="cnn_latest.pth"):
+    _, _, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Genskab modellen med samme parametre
+    model = CNNModel(in_channels=12, seq_length=10, num_outputs=3).to(device)
+    
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    model_path = os.path.join(checkpoints_dir, model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] CNN model file {model_name} not found in {checkpoints_dir}")
+    
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.eval()
+    
+    # Saml forudsigelser over hele test datasættet
+    all_preds, all_targets = [], []
+    with torch.no_grad():
+        for X_batch, y_batch in test_loader:
+            X_batch = X_batch.to(device)
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+    
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    
+    # Omformer hvis nødvendigt (f.eks. med inverse_transform hvis data er skaleret)
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inversed_true, inversed_pred)
+    print(f"[INFO] CNN Test MSE: {mse:.4f}")
+    return mse
 
 
 # a plot function for rbf features/nature
@@ -394,6 +427,7 @@ if __name__ == "__main__":
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
     evaluate_rbfn_flag = True  # Sæt True for at teste RBFN
+    evaluate_cnn_flag = True
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
@@ -404,3 +438,6 @@ if __name__ == "__main__":
     if evaluate_rbfn_flag:
         #evaluate_rbf(batch_params, hyperparameters, rbfn_model_name)
         evaluate_rbf_keras(batch_params, hyperparameters, "rbfn_keras_latest.keras")
+    
+    if evaluate_cnn_flag:
+        evaluate_cnn(batch_params, hyperparameters, "cnn_latest.pth")

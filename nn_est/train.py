@@ -27,11 +27,14 @@ sys.path.append(project_root)
 
 #rbf+keras
 from models.RBF_Keras import initialize_centroids, build_rbf_model  # fx
-
+#CNN
+from models.CNN import CNNModel
+#Transformer
 from models.Transformer import TransformerModel
 #from models.XGBoost import XGBoostModel
 from models.RadialBasisFunctionModel import RBFN_model
 # Define EarlyStopping class
+
 """
 class EarlyStopping:
     def __init__(self, patience=10, delta=0.001):
@@ -304,6 +307,68 @@ def train_rbf_keras(xgb_data, hyperparameters):
 
     return model
 
+def train_cnn(train_loader, val_loader, hyperparameters):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Antag, at dine data har 12 features, sekvenslængden er 10, og output-dimensionen er 3.
+    # Juster disse værdier efter dine batch_params og data.
+    model = CNNModel(in_channels=12, seq_length=10, num_outputs=3).to(device)
+    
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters['learning_rate'])
+    
+    epochs = hyperparameters.get("epochs", 10)
+    train_losses, val_losses = [], []
+    
+    for epoch in range(epochs):
+        model.train()
+        epoch_train_loss = 0.0
+        for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            optimizer.zero_grad()
+            predictions = model(X_batch)
+            loss = criterion(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+            epoch_train_loss += loss.item()
+        epoch_train_loss /= len(train_loader)
+        train_losses.append(epoch_train_loss)
+        
+        # Evalueringsfase: beregn valideringstabet
+        model.eval()
+        epoch_val_loss = 0.0
+        with torch.no_grad():
+            for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                predictions = model(X_batch)
+                loss = criterion(predictions, y_batch)
+                epoch_val_loss += loss.item()
+        epoch_val_loss /= len(val_loader)
+        val_losses.append(epoch_val_loss)
+        
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {epoch_train_loss:.4f}, Val Loss: {epoch_val_loss:.4f}")
+    
+    # Gem modellen: eksempelvis gem state_dict
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    model_path = os.path.join(checkpoints_dir, f"cnn_latest.pth")
+    torch.save(model.state_dict(), model_path)
+    print(f"[INFO] CNN model saved at {model_path}")
+    
+    # Gem træningslog, hvis det ønskes
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    log_path = os.path.join(logs_dir, f"cnn_training_logs_{current_datetime}.csv")
+    logs_df = pd.DataFrame({
+        "Epoch": range(1, len(train_losses)+1),
+        "Train Loss": train_losses,
+        "Val Loss": val_losses
+    })
+    logs_df.to_csv(log_path, index=False)
+    print(f"[INFO] CNN training logs saved at {log_path}")
+    
+    return model 
 
 
 
@@ -347,8 +412,8 @@ if __name__ == "__main__":
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_rbfn_flag = True  # vil nu betyde: "kør Keras RBF"
-
+    train_rbfn_flag = False  # vil nu betyde: "kør Keras RBF"
+    train_cnn_flag = True
 
     # Train Transformer if flag is set
     if train_transformer_flag:
@@ -361,4 +426,7 @@ if __name__ == "__main__":
     if train_rbfn_flag:
         #train_rbfn(xgb_data, hyperparameters)
         train_rbf_keras(xgb_data, hyperparameters)
+    
+    if train_cnn_flag:
+        train_cnn(train_loader, val_loader, hyperparameters)
    
