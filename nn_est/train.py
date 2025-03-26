@@ -175,9 +175,9 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     ).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
+    # optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
 
-    # optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
+    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
 
     best_val_loss = float("inf")
     patience = 5
@@ -268,13 +268,15 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
         output_dim=train_loader.dataset[0][1].shape[-1],
         seq_len=batch_params['total_len'] // batch_params['gap'],
         cnn_filters=hyperparameters.get("cnn_filters", 32),
-        lstm_hidden=hyperparameters.get("lstm_hidden", 32),
+        lstm_hidden=hyperparameters.get("lstm_hidden", 64),
         dropout=hyperparameters.get("dropout", 0.3),
-        dense_units=hyperparameters.get("dense_units", 256)
+        dense_units=hyperparameters.get("dense_units", 256
+                                        )
     ).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
+    # optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
+    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
 
     best_val_loss = float("inf")
     patience = 5
@@ -363,8 +365,9 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     ).to(device)
 
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
-
+    # optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters.get("learning_rate", 1e-4), weight_decay=hyperparameters.get("weight_decay",1e-4))
+    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
+    
     best_val_loss = float("inf")
     patience = 5
     patience_counter = 0
@@ -453,7 +456,7 @@ if __name__ == "__main__":
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
         "weight_decay": 1e-4,
-        "epochs": 3,                  # CHANGE THIS TO 10 LATER
+        "epochs": 10,                  # CHANGE THIS TO 10 LATER
         "n_estimators": 200,
         "max_depth": 6,
 
@@ -465,7 +468,7 @@ if __name__ == "__main__":
         "activation": "relu",
 
         "cnn_filters": 32,
-        "lstm_hidden": 32,  
+        "lstm_hidden": 64,  
         "dense_units": 256,
 
         "lstm_hidden": 64,
@@ -481,7 +484,7 @@ if __name__ == "__main__":
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_tcn_flag = False 
+    train_tcn_flag = False
     train_cnnlstm_flag = False
     train_lstm_flag = True
 

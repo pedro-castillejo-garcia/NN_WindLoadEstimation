@@ -222,7 +222,7 @@ def evaluate_cnnlstm(batch_params, hyperparameters, model_name):
         output_dim=test_loader.dataset.tensors[1].shape[-1],
         seq_len=batch_params['total_len'] // batch_params['gap'],
         cnn_filters=hyperparameters.get("cnn_filters", 32),
-        lstm_hidden=hyperparameters.get("lstm_hidden", 32),
+        lstm_hidden=hyperparameters.get("lstm_hidden", 64),
         dropout=hyperparameters.get("dropout", 0.1),
         dense_units=hyperparameters.get("dense_units", 256)
     )
