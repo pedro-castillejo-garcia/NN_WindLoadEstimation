@@ -121,7 +121,6 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")
 
-
 # XGBoost Training Function
 def train_xgboost(xgb_data, hyperparameters):
     print("Training XGBoost")
@@ -156,6 +155,7 @@ def train_xgboost(xgb_data, hyperparameters):
     
     return xgb_model
 
+#FFNN Training Function
 def train_ffnn(batch_params, hyperparameters):
     print("Training FFNN")
     
@@ -203,7 +203,7 @@ def train_ffnn(batch_params, hyperparameters):
         val_loss /= len(val_loader)
         val_losses.append(val_loss)
         
-        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+        print(f"[{epoch+1}/{hyperparameters['epochs']}] Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
     
     # Create directories if they don't exist
     checkpoints_dir = os.path.join(project_root, "checkpoints")
@@ -223,6 +223,7 @@ def train_ffnn(batch_params, hyperparameters):
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")
 
+# One-Layer NN Training Function
 def train_one_layer_nn(batch_params, hyperparameters):
     print("Training One-Layer NN")
     
@@ -238,26 +239,37 @@ def train_one_layer_nn(batch_params, hyperparameters):
     model.to(device)
     
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
     
     train_losses, val_losses = [], []
     
+    # Learning rate scheduler
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+
+    # Early stopping
+    best_val_loss = float('inf')
+    patience = 3
+    counter = 0
+
+    train_losses, val_losses = [], []
+
     for epoch in range(hyperparameters['epochs']):
         model.train()
         train_loss = 0.0
         for X_batch, y_batch in train_loader:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            
+
             optimizer.zero_grad()
             predictions = model(X_batch)
             loss = criterion(predictions, y_batch)
             loss.backward()
             optimizer.step()
+
             train_loss += loss.item()
-        
+
         train_loss /= len(train_loader)
         train_losses.append(train_loss)
-        
+
         model.eval()
         val_loss = 0.0
         with torch.no_grad():
@@ -266,12 +278,25 @@ def train_one_layer_nn(batch_params, hyperparameters):
                 predictions = model(X_batch)
                 loss = criterion(predictions, y_batch)
                 val_loss += loss.item()
-        
+
         val_loss /= len(val_loader)
         val_losses.append(val_loss)
-        
-        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+        print(f"[{epoch+1}/{hyperparameters['epochs']}] Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
     
+        # Early stopping check
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            counter = 0
+            torch.save(model.state_dict(), os.path.join(project_root, "checkpoints", "one_layer_nn_latest.pth"))
+        else:
+            counter += 1
+            if counter >= patience:
+                print(f"[INFO] Early stopping triggered at epoch {epoch+1}")
+                break
+
+        scheduler.step()  # update learning rate
+        
     # Create directories if they don't exist
     checkpoints_dir = os.path.join(project_root, "checkpoints")
     logs_dir = os.path.join(project_root, "logs", "training_logs")
@@ -280,10 +305,7 @@ def train_one_layer_nn(batch_params, hyperparameters):
     
     # Save the model with current date and time
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
-    model_path = os.path.join(checkpoints_dir, f"one_layer_nn_latest.pth") 
-    torch.save(model.state_dict(), model_path)
-    
+        
     # Save training logs to CSV inside the training_logs folder
     log_path = os.path.join(logs_dir, f"one_layer_nn_training_logs_{current_datetime}.csv")
     logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
@@ -293,21 +315,21 @@ def train_one_layer_nn(batch_params, hyperparameters):
 # MAYBE HAVE ONE hyperparameters DICT PER MODEL
 if __name__ == "__main__":              
     batch_params = {
-        "gap": 10,
-        "total_len": 100,
-        "batch_size": 32,
+        "gap": 10,             # Initial is 10, 5 seems to work better for FFNN, try this also for Transformers
+        "total_len": 50,       # Initial is 100, 50 seems to work better for FFNN, try this also for Transformers
+        "batch_size": 128,      # Initial is 32 for Transformer, 64 for FFNN, but better results even for 128, and even better with 256
     }
     
     hyperparameters = {
-        "epochs": 2,
-        "dropout": 0.3,
+        "epochs": 50,            # Try with more epochs for FFNN
+        "dropout": 0.1,         # Initial is 0.3, 0.3 seems to work better for FFNN, 0.1 for One-Layer NN
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
         "dim_feedforward": 256,
         "layer_norm_eps": 1e-5,
-        "learning_rate": 0.001,
-        "weight_decay": 1e-4,
+        "learning_rate": 1e-4,    # 0.001 for Transformer, 0.0001 seems to work better for FFNN
+        "weight_decay": 1e-3,      # Normally 1e-4 for transformers and FFNN
         "n_estimators": 1000,
         "max_depth": 10,
         "subsample": 0.8,

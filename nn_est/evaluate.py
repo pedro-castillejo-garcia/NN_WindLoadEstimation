@@ -111,7 +111,7 @@ def evaluate_transformer(batch_params, hyperparameters, model_name):
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
 
     # Call the separate plot function
-    plot_results(y_true, y_pred, scaler_y, model_name, "Transformer")
+    plot_results(y_true, y_pred, scaler_y, model_name, "Transformer", mse)
 
     return mse
 
@@ -166,7 +166,7 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
 
     # Plot results
-    plot_results(xgb_data["y_test"], y_pred, scaler_y, model_name, "XGBoost")
+    plot_results(xgb_data["y_test"], y_pred, scaler_y, model_name, "XGBoost", mse)
 
     return mse
 
@@ -203,10 +203,17 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
             all_preds.append(predictions)
             all_targets.append(y_batch.numpy())
 
-    y_pred = scaler_y.inverse_transform(np.concatenate(all_preds, axis=0))
-    y_true = scaler_y.inverse_transform(np.concatenate(all_targets, axis=0))
+    # Concatenate all mini-batch results
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+
+    print(f"[INFO] Combined predictions shape: {y_pred.shape}")
+
+    # Compute MSE in original scale
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
     
-    mse = ((y_pred - y_true) ** 2).mean()
+    mse = mean_squared_error(inversed_true, inversed_pred)
     print(f"FFNN Evaluation MSE: {mse:.4f}")
     
     # Save MSE results
@@ -214,9 +221,16 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
     os.makedirs(logs_dir, exist_ok=True)
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     mse_log_path = os.path.join(logs_dir, f"ffnn_test_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
     
     # Ensure plot_results function is correctly defined
-    plot_results(y_true, y_pred, scaler_y, model_name, "FFNN")
+    plot_results(y_true, y_pred, scaler_y, model_name, "FFNN", mse)
   
 def evaluate_one_layer_nn(batch_params, model_name):
     print("Evaluating One-Layer NN")
@@ -249,10 +263,17 @@ def evaluate_one_layer_nn(batch_params, model_name):
             all_preds.append(predictions)
             all_targets.append(y_batch.numpy())
     
-    y_pred = scaler_y.inverse_transform(np.concatenate(all_preds, axis=0))
-    y_true = scaler_y.inverse_transform(np.concatenate(all_targets, axis=0))
+    # Concatenate all mini-batch results
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+
+    print(f"[INFO] Combined predictions shape: {y_pred.shape}")
+
+    # Compute MSE in original scale
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
     
-    mse = ((y_pred - y_true) ** 2).mean()
+    mse = mean_squared_error(inversed_true, inversed_pred)
     print(f"One-Layer NN Evaluation MSE: {mse:.4f}")
     
     # Save MSE results
@@ -260,11 +281,18 @@ def evaluate_one_layer_nn(batch_params, model_name):
     os.makedirs(logs_dir, exist_ok=True)
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     mse_log_path = os.path.join(logs_dir, f"one_layer_nn_test_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
     
     # Ensure plot_results function is correctly defined
-    plot_results(y_true, y_pred, scaler_y, model_name, "One_Layer_NN")
+    plot_results(y_true, y_pred, scaler_y, model_name, "One_Layer_NN", mse)
 
-def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
+def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
     
@@ -295,7 +323,7 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
 
     # Custom filename for each model type
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    plot_filename = f"{model_type.lower()}_plot_{current_datetime}.png"
+    plot_filename = f"{model_type.lower()}_plot_mse_{mse:.2f}_{current_datetime}.png"
     plot_path = os.path.join(plots_dir, plot_filename)
     
     plt.savefig(plot_path, dpi=300)
@@ -305,19 +333,19 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
 if __name__ == "__main__":
     batch_params = {
         "gap": 10,
-        "total_len": 100,
-        "batch_size": 32
+        "total_len": 50,    # 50 for FFNN, 100 for Transformer
+        "batch_size": 128
     }
 
     hyperparameters = {
-        "dropout": 0.2,
+        "dropout": 0.1,
         "d_model": 64,
         "nhead": 4,
         "num_layers": 2,
         "dim_feedforward": 256,
         "layer_norm_eps": 1e-5,
         "learning_rate": 1e-4,
-        "weight_decay": 1e-4,
+        "weight_decay": 1e-3,
         "n_estimators": 300,
         "max_depth": 8,
         "subsample": 0.8,       
