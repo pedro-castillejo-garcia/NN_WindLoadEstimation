@@ -412,8 +412,8 @@ if __name__ == "__main__":
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_rbfn_flag = False  # vil nu betyde: "kør Keras RBF"
-    train_cnn_flag = True
+    train_rbfn_flag = True  # 
+    train_cnn_flag = False
 
     # Train Transformer if flag is set
     if train_transformer_flag:

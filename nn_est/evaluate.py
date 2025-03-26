@@ -22,7 +22,7 @@ sys.path.append(project_root)
 from models.Transformer import TransformerModel
 #from models.XGBoost import XGBoostModel
 from models.RadialBasisFunctionModel import RBFN_model
-
+from models.CNN import CNNModel
 
 def evaluate_transformer(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
@@ -317,7 +317,64 @@ def evaluate_cnn(batch_params, hyperparameters, model_name="cnn_latest.pth"):
     inversed_true = scaler_y.inverse_transform(y_true)
     mse = mean_squared_error(inversed_true, inversed_pred)
     print(f"[INFO] CNN Test MSE: {mse:.4f}")
+    
+    # Gem MSE og hyperparametre i test_logs mappen
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"cnn_logs_{current_datetime}.csv")
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+    
+    # Plot resultater (kald din dedikerede CNN plot funktion)
+    plot_cnn_results(y_true, y_pred, scaler_y)
+    
     return mse
+
+def plot_cnn_results(y_true, y_pred, scaler_y):
+    """
+    Plotter CNN forudsigelser vs. den sande værdi.
+    Antager at y_true og y_pred er skalerede, og bruger scaler_y til at genskabe de oprindelige værdier.
+    """
+    # Inverse transform for at genskabe de oprindelige værdier
+    y_true_orig = scaler_y.inverse_transform(y_true)
+    y_pred_orig = scaler_y.inverse_transform(y_pred)
+    
+    # Vælg et passende antal samples til plottet (f.eks. de første 1600 samples)
+    sample_size = min(1600, len(y_true_orig))
+    time_labels = np.linspace(0, 10, num=sample_size)
+    
+    # Udvælg samples
+    true_sample = y_true_orig[:sample_size]
+    pred_sample = y_pred_orig[:sample_size]
+    
+    plt.figure(figsize=(12, 6))
+    # Antag, at der er flere outputs (f.eks. tre torque-værdier)
+    for j in range(true_sample.shape[1]):
+        plt.plot(time_labels, true_sample[:, j],
+                 label=f"CNN Ground Truth Mz{j+1}", linestyle="dotted")
+        plt.plot(time_labels, pred_sample[:, j],
+                 label=f"CNN Prediction Mz{j+1}")
+    
+    plt.xlabel("Time (seconds)")
+    plt.ylabel("Torque Values")
+    plt.title("CNN Predictions vs Ground Truth (First 10 Seconds)")
+    plt.legend()
+    plt.grid()
+    
+    # Gem plottet
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    plots_dir = os.path.join(project_root, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    plot_filename = f"cnn_plot_{current_datetime}.png"
+    plot_path = os.path.join(plots_dir, plot_filename)
+    plt.savefig(plot_path, dpi=300)
+    plt.show()  # Vis plottet interaktivt
+    print(f"[INFO] CNN plot saved at {plot_path}")
 
 
 # a plot function for rbf features/nature
@@ -357,8 +414,7 @@ def plot_results_rbf(y_true, y_pred, scaler_y, project_root, model_name, model_t
     plt.savefig(plot_path, dpi=300)
     print(f"[INFO] {model_type} plot saved at {plot_path}")
 
-
-def plot_results(y_true, y_pred, scaler_y, project_root, model_name, model_type):
+def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
 
@@ -422,11 +478,12 @@ if __name__ == "__main__":
     transformer_model_name = "transformer_latest.pth"
     xgboost_model_name = "xgboost_latest.json"
     rbfn_model_name = "rbfn_latest.npz"
+    cnn_model_name = "cnn_latest.pth"
 
     #decide which model
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
-    evaluate_rbfn_flag = True  # Sæt True for at teste RBFN
+    evaluate_rbfn_flag = False  # Sæt True for at teste RBFN
     evaluate_cnn_flag = True
 
     if evaluate_transformer_flag:
