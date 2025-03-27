@@ -3,14 +3,15 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from datetime import datetime
 from features import load_data
 from features import prepare_dataloaders
+from hyperparameters import batch_parameters, hyperparameters
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -312,33 +313,11 @@ def train_one_layer_nn(batch_params, hyperparameters):
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")    
 
-# MAYBE HAVE ONE hyperparameters DICT PER MODEL
+
 if __name__ == "__main__":              
-    batch_params = {
-        "gap": 10,             # Initial is 10, 5 seems to work better for FFNN, try this also for Transformers
-        "total_len": 50,       # Initial is 100, 50 seems to work better for FFNN, try this also for Transformers
-        "batch_size": 128,      # Initial is 32 for Transformer, 64 for FFNN, but better results even for 128, and even better with 256
-    }
-    
-    hyperparameters = {
-        "epochs": 50,            # Try with more epochs for FFNN
-        "dropout": 0.1,         # Initial is 0.3, 0.3 seems to work better for FFNN, 0.1 for One-Layer NN
-        "d_model": 64,
-        "nhead": 4,
-        "num_layers": 2,
-        "dim_feedforward": 256,
-        "layer_norm_eps": 1e-5,
-        "learning_rate": 1e-4,    # 0.001 for Transformer, 0.0001 seems to work better for FFNN
-        "weight_decay": 1e-3,      # Normally 1e-4 for transformers and FFNN
-        "n_estimators": 1000,
-        "max_depth": 10,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,     
-        "gamma": 0.1,  
-    }
     
     # Load preprocessed data
-    train_loader, val_loader, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    train_loader, val_loader, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
@@ -349,7 +328,7 @@ if __name__ == "__main__":
 
     # Train Transformer if flag is set
     if train_transformer_flag:
-        train_transformer(train_loader, val_loader, batch_params, hyperparameters)
+        train_transformer(train_loader, val_loader, batch_parameters, hyperparameters)
 
     # Train XGBoost if flag is set
     if train_xgboost_flag:
@@ -357,9 +336,9 @@ if __name__ == "__main__":
         
     # Train FFNN if flag is set
     if train_ffnn_flag:
-        train_ffnn(batch_params, hyperparameters)    
+        train_ffnn(batch_parameters, hyperparameters)    
         
     # Train One-Layer NN if flag is set
     if train_one_layer_nn_flag:
-        train_one_layer_nn(batch_params, hyperparameters)    
+        train_one_layer_nn(batch_parameters, hyperparameters)    
         

@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import pandas as pd
 import numpy as np
@@ -6,8 +7,10 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from sklearn.metrics import mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
-import sys
+
+
 from features import prepare_dataloaders
+from hyperparameters import batch_parameters, hyperparameters
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -329,51 +332,31 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     plt.savefig(plot_path, dpi=300)
     print(f"[INFO] {model_type} plot saved at {plot_path}")
 
-# Example usage
-if __name__ == "__main__":
-    batch_params = {
-        "gap": 10,
-        "total_len": 50,    # 50 for FFNN, 100 for Transformer
-        "batch_size": 128
-    }
 
-    hyperparameters = {
-        "dropout": 0.1,
-        "d_model": 64,
-        "nhead": 4,
-        "num_layers": 2,
-        "dim_feedforward": 256,
-        "layer_norm_eps": 1e-5,
-        "learning_rate": 1e-4,
-        "weight_decay": 1e-3,
-        "n_estimators": 300,
-        "max_depth": 8,
-        "subsample": 0.8,       
-        "colsample_bytree": 0.8,     
-        "gamma": 0.1,  
-    }
-    
+if __name__ == "__main__":
+        
     # Set model names
     transformer_model_name = "transformer_latest.pth"
     xgboost_model_name = "xgboost_latest.json"
     ffnn_model_name = "ffnn_latest.pth"
     one_layer_nn_model_name = "one_layer_nn_latest.pth"
 
-    # Choose which model to evaluate
+    # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE
+    
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
     evaluate_ffnn_flag = False
     evaluate_one_layer_nn_flag = True
 
     if evaluate_transformer_flag:
-        evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
+        evaluate_transformer(batch_parameters, hyperparameters, transformer_model_name)
 
     if evaluate_xgboost_flag:
-        evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
+        evaluate_xgboost(batch_parameters, hyperparameters, xgboost_model_name)
         
     if evaluate_ffnn_flag:
-        evaluate_ffnn(batch_params, hyperparameters, ffnn_model_name)
+        evaluate_ffnn(batch_parameters, hyperparameters, ffnn_model_name)
     
     if evaluate_one_layer_nn_flag:
-        evaluate_one_layer_nn(batch_params, one_layer_nn_model_name)
+        evaluate_one_layer_nn(batch_parameters, one_layer_nn_model_name)
         
