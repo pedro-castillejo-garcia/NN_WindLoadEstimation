@@ -323,8 +323,8 @@ if __name__ == "__main__":
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_ffnn_flag = False  # Set to True to train FFNN
-    train_one_layer_nn_flag = True  # Set to True to train One-Layer NN
+    train_ffnn_flag = True  # Set to True to train FFNN
+    train_one_layer_nn_flag = False  # Set to True to train One-Layer NN
 
     # Train Transformer if flag is set
     if train_transformer_flag:

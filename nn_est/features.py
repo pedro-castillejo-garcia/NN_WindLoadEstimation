@@ -5,6 +5,8 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
 
+from hyperparameters import batch_parameters
+
 # Automatically find the absolute path of NN_WindLoadEstimation
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -15,7 +17,7 @@ def create_sequences(data, targets, gap, total_len):
             y_seq.append(targets[i + total_len - 1])
         return np.array(X_seq), np.array(y_seq)
 
-def load_data(batch_params):
+def load_data(batch_parameters):
     # Define file paths using absolute paths
     file_paths = [
         os.path.join(project_root, "data/raw/wind_speed_11_n.csv"),
@@ -37,7 +39,6 @@ def load_data(batch_params):
     test_data = []
     
     i = 0
-    
     
     # Split datasets
     for dataset in datasets:
@@ -77,14 +78,14 @@ def load_data(batch_params):
     
     return train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y
  
-def prepare_dataloaders(batch_params):
+def prepare_dataloaders(batch_parameters):
     
-    train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y = load_data(batch_params)    
+    train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y = load_data(batch_parameters)    
     
     # Create sequences
-    train_seq_x, train_seq_y = create_sequences(train_x, train_y, batch_params['gap'], batch_params['total_len'])
-    val_seq_x, val_seq_y = create_sequences(val_x, val_y, batch_params['gap'], batch_params['total_len'])
-    test_seq_x, test_seq_y = create_sequences(test_x, test_y, batch_params['gap'], batch_params['total_len'])
+    train_seq_x, train_seq_y = create_sequences(train_x, train_y, batch_parameters['gap'], batch_parameters['total_len'])
+    val_seq_x, val_seq_y = create_sequences(val_x, val_y, batch_parameters['gap'], batch_parameters['total_len'])
+    test_seq_x, test_seq_y = create_sequences(test_x, test_y, batch_parameters['gap'], batch_parameters['total_len'])
     
     # Convert to PyTorch tensors
     X_train_tensor = torch.tensor(train_seq_x, dtype=torch.float32)
@@ -99,9 +100,9 @@ def prepare_dataloaders(batch_params):
     val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
     test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
     
-    train_loader = DataLoader(train_dataset, batch_size=batch_params['batch_size'], shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_params['batch_size'], shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_params['batch_size'], shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_parameters['batch_size'], shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_parameters['batch_size'], shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_parameters['batch_size'], shuffle=False)
     
     # Data for XGBoost (flattened data)
     X_train_flat = train_seq_x.reshape(train_seq_x.shape[0], -1)
@@ -122,11 +123,13 @@ def prepare_dataloaders(batch_params):
 
     return train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y
 
+
 if __name__ == "__main__":
-    batch_params = {
-        "gap": 10,
-        "total_len": 100,
-        "batch_size": 16,
-    }
     
-    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    # batch_params = {
+    #     "gap": 10,
+    #     "total_len": 100,
+    #     "batch_size": 16,
+    # }
+    
+    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)

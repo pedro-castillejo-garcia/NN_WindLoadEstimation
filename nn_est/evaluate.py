@@ -24,7 +24,7 @@ from models.XGBoost import XGBoostModel
 from models.FFNN import FFNNModel
 from models.OneLayerNN import OneLayerNN
 
-def evaluate_transformer(batch_params, hyperparameters, model_name):
+def evaluate_transformer(batch_parameters, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
 
     # Load test data
@@ -51,7 +51,7 @@ def evaluate_transformer(batch_params, hyperparameters, model_name):
     model = TransformerModel(
         input_dim=train_loader.dataset.tensors[0].shape[-1],  
         output_dim=train_loader.dataset.tensors[1].shape[-1],  
-        seq_len=batch_params['total_len'] // batch_params['gap'],
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap'],
         d_model=hyperparameters['d_model'],
         nhead=hyperparameters['nhead'],
         num_layers=hyperparameters['num_layers'],
@@ -107,8 +107,8 @@ def evaluate_transformer(batch_params, hyperparameters, model_name):
     mse_log_path = os.path.join(logs_dir, f"transformer_test_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
     })
     mse_df.to_csv(mse_log_path, index=False)
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
@@ -162,8 +162,8 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
     mse_log_path = os.path.join(logs_dir, f"xg_boost_test_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
     })
     mse_df.to_csv(mse_log_path, index=False)
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
@@ -176,7 +176,7 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
 def evaluate_ffnn(batch_params, hyperparameters, model_name):
     print("Evaluating FFNN")
 
-    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -184,7 +184,7 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
     ffnn_model = FFNNModel(
         input_dim=test_loader.dataset[0][0].shape[-1],
         output_dim=test_loader.dataset[0][1].shape[-1],
-        seq_len=batch_params['total_len'] // batch_params['gap']
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap']
     )
     
     # Load model weights if saved
@@ -226,8 +226,8 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
     mse_log_path = os.path.join(logs_dir, f"ffnn_test_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
     })
     mse_df.to_csv(mse_log_path, index=False)
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
@@ -239,12 +239,12 @@ def evaluate_one_layer_nn(batch_params, model_name):
     print("Evaluating One-Layer NN")
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
     
     one_layer_nn_model = OneLayerNN(
         input_dim=test_loader.dataset[0][0].shape[-1],
         output_dim=test_loader.dataset[0][1].shape[-1],
-        seq_len=batch_params['total_len'] // batch_params['gap']
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap']
     )
     
     # Load model weights if saved
@@ -286,8 +286,8 @@ def evaluate_one_layer_nn(batch_params, model_name):
     mse_log_path = os.path.join(logs_dir, f"one_layer_nn_test_logs_{current_datetime}.csv")
 
     mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
     })
     mse_df.to_csv(mse_log_path, index=False)
     print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
@@ -345,8 +345,8 @@ if __name__ == "__main__":
     
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
-    evaluate_ffnn_flag = False
-    evaluate_one_layer_nn_flag = True
+    evaluate_ffnn_flag = True
+    evaluate_one_layer_nn_flag = False
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_parameters, hyperparameters, transformer_model_name)
