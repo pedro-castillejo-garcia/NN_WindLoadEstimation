@@ -20,4 +20,17 @@ hyperparameters = {
     "subsample": 0.8,           # This is for XGBoost
     "colsample_bytree": 0.8,    # This is for XGBoost
     "gamma": 0.1,               # This is for XGBoost
+
+    "num_channels": [32, 64, 64],               # For TCN
+    "kernel_size": 5,                           # For TCN
+    "kernel_initializer": 'kaiming_uniform',    # For TCN
+    "causal": True,                             # For TCN
+    "use_skip_connections": False,              # For TCN
+    "use_norm": "weight_norm",                  # For TCN
+    "activation": "relu",                       # For TCN
+
+    "cnn_filters": 32,                          # For CNN_LSTM
+    "lstm_hidden": 64,                          # For LSTM & CNN_LSTM
+    "dense_units": 256,                         # For LSTM & CNN_LSTM
+    "num_layers_lstm": 2                        # For LSTM & CNN_LSTM
 }
