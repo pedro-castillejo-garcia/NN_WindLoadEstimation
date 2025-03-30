@@ -235,7 +235,6 @@ def train_one_layer_nn(batch_params, hyperparameters):
         input_dim=train_loader.dataset[0][0].shape[-1],
         output_dim=train_loader.dataset[0][1].shape[-1],
         seq_len=batch_params['total_len'] // batch_params['gap'],
-        dropout=hyperparameters['dropout']
     )
     model.to(device)
     
