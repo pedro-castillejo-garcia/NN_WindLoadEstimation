@@ -345,8 +345,8 @@ if __name__ == "__main__":
     
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
-    evaluate_ffnn_flag = True
-    evaluate_one_layer_nn_flag = False
+    evaluate_ffnn_flag = False
+    evaluate_one_layer_nn_flag = True
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_parameters, hyperparameters, transformer_model_name)

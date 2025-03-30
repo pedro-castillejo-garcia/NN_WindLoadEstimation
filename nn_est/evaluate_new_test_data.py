@@ -24,7 +24,7 @@ from models.FFNN import FFNNModel
 def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
     print("Evaluating FFNN")
 
-    test_loader, scaler_x, scaler_y = prepare_dataloaders_new_test_data(batch_parameters)
+    test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -46,17 +46,22 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
     ffnn_model.to(device)
     ffnn_model.eval()
     
-    all_preds, all_targets = [], []
+    all_preds, all_targets, all_times, all_sources = [], [], [], []
+
     with torch.no_grad():
-        for X_batch, y_batch in test_loader:
+        for idx, (X_batch, y_batch, t_batch, source_idx) in enumerate(test_loader):
             X_batch = X_batch.to(device)
             predictions = ffnn_model(X_batch).cpu().numpy()
             all_preds.append(predictions)
             all_targets.append(y_batch.numpy())
+            all_times.append(t_batch.numpy())
+            all_sources.append(source_idx.numpy()) 
 
     # Concatenate all mini-batch results
     y_pred = np.concatenate(all_preds, axis=0)
     y_true = np.concatenate(all_targets, axis=0)
+    time_values = np.concatenate(all_times, axis=0)[:, 0, 0]
+    source_indices = np.concatenate(all_sources, axis=0)
 
     print(f"[INFO] Combined predictions shape: {y_pred.shape}")
 
@@ -64,6 +69,30 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
     inversed_pred = scaler_y.inverse_transform(y_pred)
     inversed_true = scaler_y.inverse_transform(y_true)
     
+    # Save the results DataFrame as a CSV file
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        
+    # Create full DataFrame
+    results_df = pd.DataFrame({
+        "Time": time_values,
+        "Actual_Mz1": scaler_y.inverse_transform(y_true)[:, 0],
+        "Predicted_Mz1": scaler_y.inverse_transform(y_pred)[:, 0],
+        "Actual_Mz2": scaler_y.inverse_transform(y_true)[:, 1],
+        "Predicted_Mz2": scaler_y.inverse_transform(y_pred)[:, 1],
+        "Actual_Mz3": scaler_y.inverse_transform(y_true)[:, 2],
+        "Predicted_Mz3": scaler_y.inverse_transform(y_pred)[:, 2],
+        "File": [source_tensor[i] for i in source_indices]
+    })
+    
+    results_dir = os.path.join(project_root, "results_new_test_data")
+    os.makedirs(results_dir, exist_ok=True)
+
+    for file_name, group in results_df.groupby("File"):
+        clean_name = os.path.splitext(file_name)[0]
+        save_path = os.path.join(results_dir, f"{clean_name}_new_test_data_results.csv")
+        group.drop(columns="File").to_csv(save_path, index=False)
+        print(f"[INFO] Saved: {save_path}")
+
     mse = mean_squared_error(inversed_true, inversed_pred)
     print(f"FFNN Evaluation MSE: {mse:.4f}")
     
@@ -119,7 +148,6 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     
     plt.savefig(plot_path, dpi=300)
     print(f"[INFO] {model_type} plot saved at {plot_path}")    
-    
     
 if __name__ == "__main__":
         
