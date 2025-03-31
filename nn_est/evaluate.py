@@ -28,7 +28,7 @@ def evaluate_transformer(batch_parameters, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
 
     # Load test data
-    train_loader, val_loader, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    train_loader, val_loader, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
     
     test_data_x = test_loader.dataset.tensors[0].numpy()
     test_data_y = test_loader.dataset.tensors[1].numpy()
@@ -118,11 +118,11 @@ def evaluate_transformer(batch_parameters, hyperparameters, model_name):
 
     return mse
 
-def evaluate_xgboost(batch_params, hyperparameters, model_name):
+def evaluate_xgboost(batch_parameters, hyperparameters, model_name):
     print("[INFO] Evaluating XGBoost model...")
 
     # Load test data
-    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
 
     # Load trained XGBoost model
     xgb_model = XGBoostModel(
@@ -173,7 +173,7 @@ def evaluate_xgboost(batch_params, hyperparameters, model_name):
 
     return mse
 
-def evaluate_ffnn(batch_params, hyperparameters, model_name):
+def evaluate_ffnn(batch_parameters, hyperparameters, model_name):
     print("Evaluating FFNN")
 
     _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
@@ -235,7 +235,7 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
     # Ensure plot_results function is correctly defined
     plot_results(y_true, y_pred, scaler_y, model_name, "FFNN", mse)
   
-def evaluate_one_layer_nn(batch_params, model_name):
+def evaluate_one_layer_nn(batch_parameters, model_name):
     print("Evaluating One-Layer NN")
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

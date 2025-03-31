@@ -1,8 +1,8 @@
 # MAYBE HAVE ONE hyperparameters DICT PER MODEL
 batch_parameters = {
     "gap": 10,             # Initial is 10 ( also the one that works the best)
-    "total_len": 1000,       # Initial is 100 for Transformers, 500 works better for OneLayerNN
-    "batch_size": 128,      # Initial is 32 for Transformer, 64 for FFNN, but better results even for 128, and even better with 256
+    "total_len": 100,       # Initial is 100 for Transformers, 500 works better for OneLayerNN
+    "batch_size": 32,      # Initial is 32 for Transformer, 64 for FFNN, but better results even for 128, and even better with 256
 }
     
 hyperparameters = {

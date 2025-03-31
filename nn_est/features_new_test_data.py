@@ -11,11 +11,13 @@ from features import create_sequences
 # Automatically find the absolute path of NN_WindLoadEstimation
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-def load_data_new_test_data(batch_parameters):
-    
+def load_data_new_test_data(batch_parameters, max_files=None):
     csv_folder = os.path.join(project_root, "data/raw/Systol Files/Fc")
     file_paths = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.endswith(".csv")]
 
+    if max_files:
+        file_paths = file_paths[:max_files]
+        
     datasets = []
     for file_path in file_paths:
         df = pd.read_csv(file_path)
@@ -37,9 +39,9 @@ def load_data_new_test_data(batch_parameters):
 
     return all_test_data, test_x, test_y, test_t, scaler_x, scaler_y
 
-def prepare_dataloaders_new_test_data(batch_parameters):
+def prepare_dataloaders_new_test_data(batch_parameters, max_files=None):
     
-    all_test_data, test_x, test_y, test_t, scaler_x, scaler_y = load_data_new_test_data(batch_parameters)
+    all_test_data, test_x, test_y, test_t, scaler_x, scaler_y = load_data_new_test_data(batch_parameters, max_files)
 
     # Create sequences
     test_seq_x, test_seq_y = create_sequences(test_x, test_y, batch_parameters['gap'], batch_parameters['total_len'])
