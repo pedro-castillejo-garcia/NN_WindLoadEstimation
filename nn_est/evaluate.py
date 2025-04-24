@@ -23,6 +23,9 @@ from models.Transformer import TransformerModel
 from models.XGBoost import XGBoostModel
 from models.FFNN import FFNNModel
 from models.OneLayerNN import OneLayerNN
+from models.TCN import TCNModel
+from models.CNNLSTM import CNNLSTMModel
+from models.LSTM import LSTMModel
 
 def evaluate_transformer(batch_parameters, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
@@ -198,6 +201,67 @@ def evaluate_ffnn(batch_params, hyperparameters, model_name):
     ffnn_model.to(device)
     ffnn_model.eval()
     
+def evaluate_tcn(batch_params, hyperparameters, model_name):
+    print("[INFO] Evaluating TCN model...")
+
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    test_data_x = test_loader.dataset.tensors[0].numpy()
+    test_data_y = test_loader.dataset.tensors[1].numpy()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = TCNModel(
+        input_dim=test_loader.dataset.tensors[0].shape[-1],
+        output_dim=test_loader.dataset.tensors[1].shape[-1],
+        num_channels=hyperparameters.get("num_channels", [32, 64, 64]),
+        kernel_size=hyperparameters.get("kernel_size", 5),
+        dropout=hyperparameters.get("dropout", 0.2),
+        causal=hyperparameters.get("causal", True),
+        use_skip_connections=hyperparameters.get("use_skip_connections", False),
+        use_norm=hyperparameters.get("use_norm", "weight_norm"),
+        activation=hyperparameters.get("activation", "relu")
+    )
+    model.load_state_dict(torch.load(os.path.join(project_root, "checkpoints", model_name)))
+    model.to(device)
+    model.eval()
+
+    all_preds, all_targets = [], []
+    with torch.no_grad():
+        for X_batch, y_batch in test_loader:
+            X_batch = X_batch.permute(0, 2, 1).to(device)
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inversed_true, inversed_pred)
+
+    print(f"[INFO] TCN MSE: {mse}")
+    save_logs_and_plot(mse, hyperparameters, inversed_true, inversed_pred, "TCN", model_name, scaler_y)
+
+def evaluate_cnnlstm(batch_params, hyperparameters, model_name):
+    print("[INFO] Evaluating CNN-LSTM model...")
+
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    test_data_x = test_loader.dataset.tensors[0].numpy()
+    test_data_y = test_loader.dataset.tensors[1].numpy()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = CNNLSTMModel(
+        input_dim=test_loader.dataset.tensors[0].shape[-1],
+        output_dim=test_loader.dataset.tensors[1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap'],
+        cnn_filters=hyperparameters.get("cnn_filters", 32),
+        lstm_hidden=hyperparameters.get("lstm_hidden", 64),
+        dropout=hyperparameters.get("dropout", 0.1),
+        dense_units=hyperparameters.get("dense_units", 256)
+    )
+    model.load_state_dict(torch.load(os.path.join(project_root, "checkpoints", model_name)))
+    model.to(device)
+    model.eval()
+
     all_preds, all_targets = [], []
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
@@ -258,6 +322,39 @@ def evaluate_one_layer_nn(batch_params, model_name):
     one_layer_nn_model.to(device)
     one_layer_nn_model.eval()
     
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inversed_true, inversed_pred)
+
+    print(f"[INFO] CNN-LSTM MSE: {mse}")
+    save_logs_and_plot(mse, hyperparameters, inversed_true, inversed_pred, "CNN_LSTM", model_name, scaler_y)
+
+def evaluate_lstm(batch_params, hyperparameters, model_name):
+    print("[INFO] Evaluating LSTM model...")
+
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    test_data_x = test_loader.dataset.tensors[0].numpy()
+    test_data_y = test_loader.dataset.tensors[1].numpy()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = LSTMModel(
+        input_dim=test_loader.dataset.tensors[0].shape[-1],
+        output_dim=test_loader.dataset.tensors[1].shape[-1],
+        lstm_hidden=hyperparameters.get("lstm_hidden", 64),
+        num_layers=hyperparameters.get("num_layers_lstm", 2),
+        dropout=hyperparameters.get("dropout", 0.3),
+        dense_units=hyperparameters.get("dense_units", 256)
+    )
+    model.load_state_dict(torch.load(os.path.join(project_root, "checkpoints", model_name)))
+    model.to(device)
+    model.eval()
+
     all_preds, all_targets = [], []
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
@@ -296,6 +393,37 @@ def evaluate_one_layer_nn(batch_params, model_name):
     plot_results(y_true, y_pred, scaler_y, model_name, "One_Layer_NN", mse)
 
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inversed_true, inversed_pred)
+
+    print(f"[INFO] LSTM MSE: {mse}")
+    save_logs_and_plot(mse, hyperparameters, inversed_true, inversed_pred, "LSTM", model_name, scaler_y)
+
+
+def save_logs_and_plot(mse, hyperparameters, y_true, y_pred, model_type, model_name, scaler_y):
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"{model_type.lower()}_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()),
+        "Value": [mse] + list(hyperparameters.values())
+    })
+    mse_df.to_csv(log_path, index=False)
+    print(f"[INFO] Test MSE logged at {log_path}")
+
+    plot_results(y_true, y_pred, scaler_y=scaler_y, project_root=project_root, model_name=model_name, model_type=model_type)
+
+
+def plot_results(y_true, y_pred, scaler_y, project_root, model_name, model_type):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
     
@@ -347,6 +475,16 @@ if __name__ == "__main__":
     evaluate_xgboost_flag = False
     evaluate_ffnn_flag = True
     evaluate_one_layer_nn_flag = False
+    tcn_model_name = "tcn_latest.pth"
+    cnn_lstm_model_name = "cnn_lstm_latest.pth"
+    lstm_model_name = "lstm_latest.pth"
+
+    # Choose which model to evaluate
+    evaluate_transformer_flag = False
+    evaluate_xgboost_flag = False
+    evaluate_tcn_flag = False
+    evaluate_cnnlstm_flag = False
+    evaluate_lstm_flag = True
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_parameters, hyperparameters, transformer_model_name)
@@ -360,3 +498,13 @@ if __name__ == "__main__":
     if evaluate_one_layer_nn_flag:
         evaluate_one_layer_nn(batch_parameters, one_layer_nn_model_name)
         
+        evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
+
+    if evaluate_tcn_flag:
+        evaluate_tcn(batch_params, hyperparameters, tcn_model_name)
+
+    if evaluate_cnnlstm_flag:
+        evaluate_cnnlstm(batch_params, hyperparameters, cnn_lstm_model_name)
+
+    if evaluate_lstm_flag:
+        evaluate_lstm(batch_params, hyperparameters, lstm_model_name)
