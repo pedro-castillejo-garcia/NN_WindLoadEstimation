@@ -20,11 +20,12 @@ sys.path.append(project_root)
 
 # Add the models you want to evaluate with the new data here
 from models.FFNN import FFNNModel
+from models.Transformer import TransformerModel
 
-def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
-    print("Evaluating FFNN")
+def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
+    print("[INFO] Evaluating FFNN")
 
-    test_loader, scaler_x, scaler_y = prepare_dataloaders_new_test_data(batch_parameters)
+    test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -46,17 +47,22 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
     ffnn_model.to(device)
     ffnn_model.eval()
     
-    all_preds, all_targets = [], []
+    all_preds, all_targets, all_times, all_sources = [], [], [], []
+
     with torch.no_grad():
-        for X_batch, y_batch in test_loader:
+        for idx, (X_batch, y_batch, t_batch, source_idx) in enumerate(test_loader):
             X_batch = X_batch.to(device)
             predictions = ffnn_model(X_batch).cpu().numpy()
             all_preds.append(predictions)
             all_targets.append(y_batch.numpy())
+            all_times.append(t_batch.numpy())
+            all_sources.append(source_idx.numpy()) 
 
     # Concatenate all mini-batch results
     y_pred = np.concatenate(all_preds, axis=0)
     y_true = np.concatenate(all_targets, axis=0)
+    time_values = np.concatenate(all_times, axis=0)[:, 0, 0]
+    source_indices = np.concatenate(all_sources, axis=0)
 
     print(f"[INFO] Combined predictions shape: {y_pred.shape}")
 
@@ -64,6 +70,30 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
     inversed_pred = scaler_y.inverse_transform(y_pred)
     inversed_true = scaler_y.inverse_transform(y_true)
     
+    # Save the results DataFrame as a CSV file
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        
+    # Create full DataFrame
+    results_df = pd.DataFrame({
+        "Time": time_values,
+        "Actual_Mz1": scaler_y.inverse_transform(y_true)[:, 0],
+        "Predicted_Mz1": scaler_y.inverse_transform(y_pred)[:, 0],
+        "Actual_Mz2": scaler_y.inverse_transform(y_true)[:, 1],
+        "Predicted_Mz2": scaler_y.inverse_transform(y_pred)[:, 1],
+        "Actual_Mz3": scaler_y.inverse_transform(y_true)[:, 2],
+        "Predicted_Mz3": scaler_y.inverse_transform(y_pred)[:, 2],
+        "File": [source_tensor[i] for i in source_indices]
+    })
+    
+    results_dir = os.path.join(project_root, "results_new_test_data")
+    os.makedirs(results_dir, exist_ok=True)
+
+    for file_name, group in results_df.groupby("File"):
+        clean_name = os.path.splitext(file_name)[0]
+        save_path = os.path.join(results_dir, f"{clean_name}_new_test_data_ffnn_results.csv")
+        group.drop(columns="File").to_csv(save_path, index=False)
+        print(f"[INFO] Saved: {save_path}")
+
     mse = mean_squared_error(inversed_true, inversed_pred)
     print(f"FFNN Evaluation MSE: {mse:.4f}")
     
@@ -83,6 +113,118 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name):
     # Ensure plot_results function is correctly defined
     plot_results(y_true, y_pred, scaler_y, model_name, "FFNN", mse)
 
+
+def evaluate_transformer_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
+    print("[INFO] Evaluating Transformer model on new test data...")
+
+    test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Using device: {device}")
+
+    transformer_model = TransformerModel(
+        input_dim=test_loader.dataset.tensors[0].shape[-1],
+        output_dim=test_loader.dataset.tensors[1].shape[-1],
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap'],
+        d_model=hyperparameters['d_model'],
+        nhead=hyperparameters['nhead'],
+        num_layers=hyperparameters['num_layers'],
+        dim_feedforward=hyperparameters['dim_feedforward'],
+        dropout=hyperparameters['dropout'],
+        layer_norm_eps=hyperparameters['layer_norm_eps']
+    )
+
+    model_path = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] Model file {model_name} not found at {model_path}")
+
+    transformer_model.load_state_dict(torch.load(model_path, map_location=device))
+    transformer_model.to(device)
+    transformer_model.eval()
+    print("[INFO] Model loaded successfully.")
+
+    # Create results directory
+    results_dir = os.path.join(project_root, "results_new_test_data")
+    os.makedirs(results_dir, exist_ok=True)
+
+    # For logging MSE per file
+    per_file_mse = {}
+    file_data_map = {}
+
+    print("[INFO] Collecting predictions and grouping by file...")
+
+    with torch.no_grad():
+        for i, (X_batch, y_batch, t_batch, source_idx_batch) in enumerate(test_loader):
+            X_batch = X_batch.to(device)
+            preds = transformer_model(X_batch).cpu().numpy()
+            y_true = y_batch.numpy()
+            t_vals = t_batch.numpy()[:, 0, 0]
+            file_names = [source_tensor[idx] for idx in source_idx_batch.numpy()]
+
+            for j in range(len(preds)):
+                fname = file_names[j]
+                if fname not in file_data_map:
+                    file_data_map[fname] = {
+                        "Time": [],
+                        "Actual_Mz1": [],
+                        "Predicted_Mz1": [],
+                        "Actual_Mz2": [],
+                        "Predicted_Mz2": [],
+                        "Actual_Mz3": [],
+                        "Predicted_Mz3": []
+                    }
+
+                # Inverse transform predictions and targets
+                pred_inv = scaler_y.inverse_transform(preds[j].reshape(1, -1))[0]
+                true_inv = scaler_y.inverse_transform(y_true[j].reshape(1, -1))[0]
+
+                file_data_map[fname]["Time"].append(t_vals[j])
+                file_data_map[fname]["Actual_Mz1"].append(true_inv[0])
+                file_data_map[fname]["Predicted_Mz1"].append(pred_inv[0])
+                file_data_map[fname]["Actual_Mz2"].append(true_inv[1])
+                file_data_map[fname]["Predicted_Mz2"].append(pred_inv[1])
+                file_data_map[fname]["Actual_Mz3"].append(true_inv[2])
+                file_data_map[fname]["Predicted_Mz3"].append(pred_inv[2])
+
+    print("[INFO] Saving results per file...")
+
+    for fname, data in file_data_map.items():
+        results_df = pd.DataFrame(data)
+        mse = mean_squared_error(
+            results_df[["Actual_Mz1", "Actual_Mz2", "Actual_Mz3"]],
+            results_df[["Predicted_Mz1", "Predicted_Mz2", "Predicted_Mz3"]],
+        )
+        per_file_mse[fname] = mse
+
+        name_base = os.path.splitext(fname)[0]
+        output_path = os.path.join(results_dir, f"{name_base}_new_test_data_transformers_results.csv")
+        results_df.to_csv(output_path, index=False)
+        print(f"[INFO] Saved: {output_path}")
+
+    # Save MSE summary
+    log_dir = os.path.join(project_root, "logs", "test_new_data_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(log_dir, f"transformer_test_new_data_logs_{current_datetime}.csv")
+
+    pd.DataFrame(list(per_file_mse.items()), columns=["File", "MSE"]).to_csv(mse_log_path, index=False)
+    print(f"[INFO] Per-file MSE summary saved to: {mse_log_path}")
+
+    # Option: plot first file's results
+    first_file = list(file_data_map.keys())[0]
+    plot_df = pd.DataFrame(file_data_map[first_file])
+    mse = per_file_mse[first_file]
+
+    plot_results(
+        y_true=scaler_y.transform(plot_df[["Actual_Mz1", "Actual_Mz2", "Actual_Mz3"]]),
+        y_pred=scaler_y.transform(plot_df[["Predicted_Mz1", "Predicted_Mz2", "Predicted_Mz3"]]),
+        scaler_y=scaler_y,
+        model_name=model_name,
+        model_type="Transformer",
+        mse=mse
+    )
+
+    
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
@@ -120,17 +262,22 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     plt.savefig(plot_path, dpi=300)
     print(f"[INFO] {model_type} plot saved at {plot_path}")    
     
-    
 if __name__ == "__main__":
         
     # Set model names
     ffnn_model_name = "ffnn_latest.pth"
+    transformer_model_name = "transformer_latest.pth"
 
     # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE    
-    evaluate_ffnn_flag = True
-        
+    evaluate_ffnn_flag = False
+    evaluate_transformer_flag = True
+    
+    # Change the max values accordingly to how many of the new test data csv files you want to evaluate    
     if evaluate_ffnn_flag:
-        evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, ffnn_model_name)
+        evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, ffnn_model_name, max_files=2)
+        
+    if evaluate_transformer_flag:
+        evaluate_transformer_new_test_data(batch_parameters, hyperparameters, transformer_model_name, max_files=25)
     
 
             

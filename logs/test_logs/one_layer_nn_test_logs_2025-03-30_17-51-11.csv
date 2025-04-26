@@ -1,5 +1,5 @@
 Metric,Value
-MSE,155.05018615722656
+MSE,182.97943115234375
 epochs,20.0
 dropout,0.3
 d_model,64.0
@@ -14,3 +14,6 @@ max_depth,10.0
 subsample,0.8
 colsample_bytree,0.8
 gamma,0.1
+gap,10.0
+total_len,1000.0
+batch_size,128.0

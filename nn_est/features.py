@@ -26,58 +26,63 @@ def load_data(batch_parameters):
         os.path.join(project_root, "data/raw/wind_speed_17_n.csv"),
         os.path.join(project_root, "data/raw/wind_speed_19_n.csv")
     ]
-    
+
     # Load datasets
     datasets = [pd.read_csv(file) for file in file_paths]
     
+    total_rows = sum(len(df) for df in datasets)
+
     # Define features and targets
     features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", "beta1", "beta2", "beta3", "omega_r"]
     targets = ["Mz1", "Mz2", "Mz3"]
-    
+
     train_data = []
     val_data = []
     test_data = []
-    
-    i = 0
-    
-    # Split datasets
-    for dataset in datasets:
+
+    for i, dataset in enumerate(datasets):
         n = len(dataset)
+        
+        # Calculate test set indices
         test_start_idx = int((i % 5) * 0.2 * n)
         test_end_idx = test_start_idx + int(0.2 * n)
+
+        # Extract test set
+        test_split = dataset.iloc[test_start_idx:test_end_idx]
+        test_data.append(test_split)
         
-        # Extract test data first
-        test_data.append(dataset.iloc[test_start_idx:test_end_idx])
+        # Remaining after removing test
         remaining_data = dataset.drop(dataset.index[test_start_idx:test_end_idx])
-        
-        # Split remaining data into training and validation
-        train_end_idx = int(0.8 * len(remaining_data))
-        train_data.append(remaining_data.iloc[:train_end_idx])
-        val_data.append(remaining_data.iloc[train_end_idx:])
-        
-        i += 1
     
-    # Concatenate datasets
+        # Now split the remaining into train (75%) and val (25%)
+        train_end_idx = int(0.75 * len(remaining_data))
+        train_split = remaining_data.iloc[:train_end_idx]
+        val_split = remaining_data.iloc[train_end_idx:]
+
+        train_data.append(train_split)
+        val_data.append(val_split)
+
+    # Combine splits
     train_data = pd.concat(train_data, ignore_index=True)
     val_data = pd.concat(val_data, ignore_index=True)
     test_data = pd.concat(test_data, ignore_index=True)
-    
+
     # Initialize scalers
     scaler_x = MinMaxScaler()
     scaler_y = MinMaxScaler()
-    
+
     # Scale the features and targets
     train_x = scaler_x.fit_transform(train_data[features].values)
     train_y = scaler_y.fit_transform(train_data[targets].values)
-    
+
     val_x = scaler_x.transform(val_data[features].values)
     val_y = scaler_y.transform(val_data[targets].values)
-    
+
     test_x = scaler_x.transform(test_data[features].values)
     test_y = scaler_y.transform(test_data[targets].values)
-    
+
     return train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y
- 
+
 def prepare_dataloaders(batch_parameters):
     
     train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y = load_data(batch_parameters)    
@@ -125,11 +130,5 @@ def prepare_dataloaders(batch_parameters):
 
 
 if __name__ == "__main__":
-    
-    # batch_params = {
-    #     "gap": 10,
-    #     "total_len": 100,
-    #     "batch_size": 16,
-    # }
-    
+        
     train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)

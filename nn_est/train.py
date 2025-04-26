@@ -28,6 +28,8 @@ from models.TCN import TCNModel
 from models.CNNLSTM import CNNLSTMModel
 from models.LSTM import LSTMModel
 
+# Save the model with current date and time
+current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 # Define EarlyStopping class
 class EarlyStopping:
     def __init__(self, patience=10, delta=0.001):
@@ -67,7 +69,7 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
     
-    early_stopping = EarlyStopping(patience=5, delta=0.00001)
+    early_stopping = EarlyStopping(patience=5, delta=0.00005)
     
     train_losses, val_losses = [], []
     
@@ -113,10 +115,7 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(logs_dir, exist_ok=True)
     
-    # Save the model with current date and time
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
-    model_path = os.path.join(checkpoints_dir, f"transformer_latest.pth") 
+    model_path = os.path.join(checkpoints_dir, f"transformer_latest_sequenced_{current_datetime}.pth") 
     torch.save(model.state_dict(), model_path)
     
     # Save training logs to CSV inside the training_logs folder
@@ -153,7 +152,7 @@ def train_xgboost(xgb_data, hyperparameters):
     checkpoints_dir = os.path.join(project_root, "checkpoints")
     os.makedirs(checkpoints_dir, exist_ok=True)
 
-    xgboost_model_path = os.path.join(checkpoints_dir, "xgboost_latest.json")
+    xgboost_model_path = os.path.join(checkpoints_dir, f"xgboost_sequenced_latest_{current_datetime}_.json")
     xgb_model.model.save_model(xgboost_model_path)
     print(f"[INFO] XGBoost model saved at {xgboost_model_path}")
     
@@ -218,7 +217,7 @@ def train_ffnn(batch_params, hyperparameters):
     # Save the model with current date and time
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
-    model_path = os.path.join(checkpoints_dir, f"ffnn_latest.pth") 
+    model_path = os.path.join(checkpoints_dir, f"ffnn_sequenced_{current_datetime}_latest.pth") 
     torch.save(model.state_dict(), model_path)
     
     # Save training logs to CSV inside the training_logs folder
@@ -240,7 +239,6 @@ def train_one_layer_nn(batch_params, hyperparameters):
         input_dim=train_loader.dataset[0][0].shape[-1],
         output_dim=train_loader.dataset[0][1].shape[-1],
         seq_len=batch_params['total_len'] // batch_params['gap'],
-        dropout=hyperparameters['dropout']
     )
     model.to(device)
     
@@ -294,7 +292,7 @@ def train_one_layer_nn(batch_params, hyperparameters):
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             counter = 0
-            torch.save(model.state_dict(), os.path.join(project_root, "checkpoints", "one_layer_nn_latest.pth"))
+            torch.save(model.state_dict(), os.path.join(project_root, "checkpoints", f"one_layer_nn_sequenced_{current_datetime}_latest.pth"))
         else:
             counter += 1
             if counter >= patience:
@@ -989,8 +987,8 @@ if __name__ == "__main__":
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
-    train_transformer_flag = False  # Set to True to train Transformer
-    train_xgboost_flag = False  # Set to True to train XGBoost
+    train_transformer_flag = True  # Set to True to train Transformer
+    train_xgboost_flag = True  # Set to True to train XGBoost
     train_ffnn_flag = True  # Set to True to train FFNN
     train_one_layer_nn_flag = False  # Set to True to train One-Layer NN
     train_tcn_flag = False
