@@ -160,6 +160,7 @@ def train_ffnn(batch_params, hyperparameters):
     print("Training FFNN")
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     train_loader, val_loader, _, _, _, _ = prepare_dataloaders(batch_params)
     
     model = FFNNModel(
@@ -319,10 +320,10 @@ if __name__ == "__main__":
     
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
-    train_transformer_flag = True  # Set to True to train Transformer
-    train_xgboost_flag = True  # Set to True to train XGBoost
+    train_transformer_flag = False  # Set to True to train Transformer
+    train_xgboost_flag = False  # Set to True to train XGBoost
     train_ffnn_flag = True  # Set to True to train FFNN
-    train_one_layer_nn_flag = True  # Set to True to train One-Layer NN
+    train_one_layer_nn_flag = False  # Set to True to train One-Layer NN
 
     # Train Transformer if flag is set
     if train_transformer_flag:
