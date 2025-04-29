@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 class CNNLSTMModel(nn.Module):
-    def __init__(self, input_dim, output_dim, seq_len=10, cnn_filters=32, lstm_hidden=32, dropout=0.1, dense_units=256):
+    def __init__(self, input_dim, output_dim, seq_len, cnn_filters=32, lstm_hidden=32, dropout=0.1, dense_units=256):
         super(CNNLSTMModel, self).__init__()
         self.cnn = nn.Conv1d(in_channels=input_dim, out_channels=cnn_filters, kernel_size=3, padding=1)
         self.pool = nn.MaxPool1d(kernel_size=1)  # No real effect but included for consistency

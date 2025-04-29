@@ -7,6 +7,7 @@ class TCNModel(nn.Module):
         self,
         input_dim,
         output_dim,
+        seq_len,
         num_channels=[32, 64, 64],
         kernel_size=6,
         kernel_initializer = 'kaiming_uniform',
@@ -17,6 +18,8 @@ class TCNModel(nn.Module):
         activation='relu'
     ):
         super(TCNModel, self).__init__()
+
+        self.seq_len = seq_len
 
         self.tcn = TCN(
             num_inputs=input_dim,
@@ -36,6 +39,10 @@ class TCNModel(nn.Module):
 
     def forward(self, x):
         # x shape: [batch_size, input_channels, sequence_length]
+
+        if self.seq_len is not None and x.shape[-1] > self.seq_len:
+            x = x[:, :, -self.seq_len:] 
+
         x = self.tcn(x)
         x = self.linear(x[:, :, -1])  # Take output at last time step
         x = self.output_activation(x)

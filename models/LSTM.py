@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_dim, output_dim, lstm_hidden=64, num_layers=2, dropout=0.3, dense_units=256):
+    def __init__(self, input_dim, output_dim, seq_len, lstm_hidden=64, num_layers=2, dropout=0.3, dense_units=256):
         super(LSTMModel, self).__init__()
         self.lstm = nn.LSTM(input_size=input_dim, hidden_size=lstm_hidden, num_layers=num_layers,
                             batch_first=True, dropout=dropout)
