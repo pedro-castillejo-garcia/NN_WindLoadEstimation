@@ -224,6 +224,269 @@ def evaluate_transformer_new_test_data(batch_parameters, hyperparameters, model_
         mse=mse
     )
 
+def evaluate_tcn_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
+    print("[INFO] Evaluating TCN model on new test data...")
+
+    test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Using device: {device}")
+
+    model = TCNModel(
+        input_dim=test_loader.dataset[0][0].shape[-1],
+        output_dim=test_loader.dataset[0][1].shape[-1],
+        num_channels=hyperparameters['num_channels'],
+        kernel_size=hyperparameters['kernel_size'],
+        dropout=hyperparameters['dropout'],
+        causal=hyperparameters['causal'],
+        use_skip_connections=hyperparameters['use_skip_connections'],
+        use_norm=hyperparameters['use_norm'],
+        activation=hyperparameters['activation']
+    )
+
+    model_path = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] Model file {model_name} not found at {model_path}")
+
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    print("[INFO] Model loaded successfully.")
+
+    all_preds, all_targets, all_times, all_sources = [], [], [], []
+
+    with torch.no_grad():
+        for X_batch, y_batch, t_batch, source_idx in test_loader:
+            X_batch = X_batch.permute(0, 2, 1).to(device)  # Permute needed for TCN!
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+            all_times.append(t_batch.numpy())
+            all_sources.append(source_idx.numpy())
+
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    time_values = np.concatenate(all_times, axis=0)[:, 0, 0]
+    source_indices = np.concatenate(all_sources, axis=0)
+
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+
+    # Build full DataFrame
+    results_df = pd.DataFrame({
+        "Time": time_values,
+        "Actual_Mz1": inversed_true[:, 0],
+        "Predicted_Mz1": inversed_pred[:, 0],
+        "Actual_Mz2": inversed_true[:, 1],
+        "Predicted_Mz2": inversed_pred[:, 1],
+        "Actual_Mz3": inversed_true[:, 2],
+        "Predicted_Mz3": inversed_pred[:, 2],
+        "File": [source_tensor[i] for i in source_indices]
+    })
+
+    results_dir = os.path.join(project_root, "results_new_test_data")
+    os.makedirs(results_dir, exist_ok=True)
+
+    for file_name, group in results_df.groupby("File"):
+        clean_name = os.path.splitext(file_name)[0]
+        save_path = os.path.join(results_dir, f"{clean_name}_new_test_data_tcn_results.csv")
+        group.drop(columns="File").to_csv(save_path, index=False)
+        print(f"[INFO] Saved: {save_path}")
+
+    mse = mean_squared_error(inversed_true, inversed_pred)
+    print(f"[INFO] TCN Evaluation MSE: {mse:.4f}")
+
+    logs_dir = os.path.join(project_root, "logs", "test_new_data_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"tcn_test_new_data_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+
+    # Plot
+    plot_results(y_true, y_pred, scaler_y, model_name, "TCN", mse)
+
+
+def evaluate_cnnlstm_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
+    print("[INFO] Evaluating CNN-LSTM model on new test data...")
+
+    test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Using device: {device}")
+
+    model = CNNLSTMModel(
+        input_dim=test_loader.dataset[0][0].shape[-1],
+        output_dim=test_loader.dataset[0][1].shape[-1],
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap'],
+        cnn_filters=hyperparameters['cnn_filters'],
+        lstm_hidden=hyperparameters['lstm_hidden'],
+        dropout=hyperparameters['dropout'],
+        dense_units=hyperparameters['dense_units']
+    )
+
+    model_path = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] Model file {model_name} not found at {model_path}")
+
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    print("[INFO] Model loaded successfully.")
+
+    all_preds, all_targets, all_times, all_sources = [], [], [], []
+
+    with torch.no_grad():
+        for X_batch, y_batch, t_batch, source_idx in test_loader:
+            X_batch = X_batch.to(device)
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+            all_times.append(t_batch.numpy())
+            all_sources.append(source_idx.numpy())
+
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    time_values = np.concatenate(all_times, axis=0)[:, 0, 0]
+    source_indices = np.concatenate(all_sources, axis=0)
+
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+
+    results_df = pd.DataFrame({
+        "Time": time_values,
+        "Actual_Mz1": inversed_true[:, 0],
+        "Predicted_Mz1": inversed_pred[:, 0],
+        "Actual_Mz2": inversed_true[:, 1],
+        "Predicted_Mz2": inversed_pred[:, 1],
+        "Actual_Mz3": inversed_true[:, 2],
+        "Predicted_Mz3": inversed_pred[:, 2],
+        "File": [source_tensor[i] for i in source_indices]
+    })
+
+    results_dir = os.path.join(project_root, "results_new_test_data")
+    os.makedirs(results_dir, exist_ok=True)
+
+    for file_name, group in results_df.groupby("File"):
+        clean_name = os.path.splitext(file_name)[0]
+        save_path = os.path.join(results_dir, f"{clean_name}_new_test_data_cnnlstm_results.csv")
+        group.drop(columns="File").to_csv(save_path, index=False)
+        print(f"[INFO] Saved: {save_path}")
+
+    mse = mean_squared_error(inversed_true, inversed_pred)
+    print(f"[INFO] CNN-LSTM Evaluation MSE: {mse:.4f}")
+
+    logs_dir = os.path.join(project_root, "logs", "test_new_data_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"cnn_lstm_test_new_data_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+
+    # Plot
+    plot_results(y_true, y_pred, scaler_y, model_name, "CNN-LSTM", mse)
+
+
+def evaluate_lstm_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
+    print("[INFO] Evaluating LSTM model on new test data...")
+
+    test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Using device: {device}")
+
+    # Build model
+    model = LSTMModel(
+        input_dim=test_loader.dataset[0][0].shape[-1],
+        output_dim=test_loader.dataset[0][1].shape[-1],
+        lstm_hidden=hyperparameters['lstm_hidden'],
+        num_layers=hyperparameters['num_layers_lstm'],
+        dropout=hyperparameters['dropout'],
+        dense_units=hyperparameters['dense_units']
+    )
+
+    # Load weights
+    model_path = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"[ERROR] Model file {model_name} not found at {model_path}")
+
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    print("[INFO] Model loaded successfully.")
+
+    # Predict
+    all_preds, all_targets, all_times, all_sources = [], [], [], []
+
+    with torch.no_grad():
+        for X_batch, y_batch, t_batch, source_idx in test_loader:
+            X_batch = X_batch.to(device)
+            preds = model(X_batch).cpu().numpy()
+            all_preds.append(preds)
+            all_targets.append(y_batch.numpy())
+            all_times.append(t_batch.numpy())
+            all_sources.append(source_idx.numpy()) 
+
+    y_pred = np.concatenate(all_preds, axis=0)
+    y_true = np.concatenate(all_targets, axis=0)
+    time_values = np.concatenate(all_times, axis=0)[:, 0, 0]
+    source_indices = np.concatenate(all_sources, axis=0)
+
+    print(f"[INFO] Combined predictions shape: {y_pred.shape}")
+
+    inversed_pred = scaler_y.inverse_transform(y_pred)
+    inversed_true = scaler_y.inverse_transform(y_true)
+
+    # Build results dataframe
+    results_df = pd.DataFrame({
+        "Time": time_values,
+        "Actual_Mz1": inversed_true[:, 0],
+        "Predicted_Mz1": inversed_pred[:, 0],
+        "Actual_Mz2": inversed_true[:, 1],
+        "Predicted_Mz2": inversed_pred[:, 1],
+        "Actual_Mz3": inversed_true[:, 2],
+        "Predicted_Mz3": inversed_pred[:, 2],
+        "File": [source_tensor[i] for i in source_indices]
+    })
+
+    results_dir = os.path.join(project_root, "results_new_test_data")
+    os.makedirs(results_dir, exist_ok=True)
+
+    for file_name, group in results_df.groupby("File"):
+        clean_name = os.path.splitext(file_name)[0]
+        save_path = os.path.join(results_dir, f"{clean_name}_new_test_data_lstm_results.csv")
+        group.drop(columns="File").to_csv(save_path, index=False)
+        print(f"[INFO] Saved: {save_path}")
+
+    mse = mean_squared_error(inversed_true, inversed_pred)
+    print(f"[INFO] LSTM Evaluation MSE: {mse:.4f}")
+
+    # Save MSE summary
+    logs_dir = os.path.join(project_root, "logs", "test_new_data_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    mse_log_path = os.path.join(logs_dir, f"lstm_test_new_data_logs_{current_datetime}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
+        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
+    })
+    mse_df.to_csv(mse_log_path, index=False)
+    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+
+    # Plot results
+    plot_results(y_true, y_pred, scaler_y, model_name, "LSTM", mse)
+
     
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
@@ -267,10 +530,16 @@ if __name__ == "__main__":
     # Set model names
     ffnn_model_name = "ffnn_latest.pth"
     transformer_model_name = "transformer_latest.pth"
+    tcn_model_name = "TCN_1_latest.pth"
+    cnn_lstm_model_name = "CNN-LSTM_1_latest.pth"
+    lstm_model_name = "LSTM_1_latest.pth"
 
     # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE    
     evaluate_ffnn_flag = False
     evaluate_transformer_flag = True
+    evaluate_tcn_flag = False
+    evaluate_cnnlstm_flag = False
+    evaluate_lstm_flag = True
     
     # Change the max values accordingly to how many of the new test data csv files you want to evaluate    
     if evaluate_ffnn_flag:
@@ -279,5 +548,13 @@ if __name__ == "__main__":
     if evaluate_transformer_flag:
         evaluate_transformer_new_test_data(batch_parameters, hyperparameters, transformer_model_name, max_files=25)
     
+    if evaluate_tcn_flag:
+        evaluate_tcn_new_test_data(batch_parameters, hyperparameters, tcn_model_name, max_files=25)
+
+    if evaluate_cnnlstm_flag:
+        evaluate_cnnlstm_new_test_data(batch_parameters, hyperparameters, cnn_lstm_model_name, max_files=25)
+
+    if evaluate_lstm_flag:
+        evaluate_lstm_new_test_data(batch_parameters, hyperparameters, lstm_model_name, max_files=25)
 
             
