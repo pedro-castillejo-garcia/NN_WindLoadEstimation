@@ -325,6 +325,7 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     model = TCNModel(
         input_dim=train_loader.dataset[0][0].shape[-1],
         output_dim=train_loader.dataset[0][1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap'],
         num_channels=hyperparameters['num_channels'],
         kernel_size=hyperparameters['kernel_size'],
         kernel_initializer = hyperparameters['kernel_initializer'],
@@ -506,6 +507,7 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     model = LSTMModel(
         input_dim=train_loader.dataset[0][0].shape[-1],
         output_dim=train_loader.dataset[0][1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap'],
         lstm_hidden=hyperparameters['lstm_hidden'],
         num_layers=hyperparameters['num_layers_lstm'],
         dropout=hyperparameters['dropout'],

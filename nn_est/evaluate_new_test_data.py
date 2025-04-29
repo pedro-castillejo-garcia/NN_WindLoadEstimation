@@ -21,6 +21,9 @@ sys.path.append(project_root)
 # Add the models you want to evaluate with the new data here
 from models.FFNN import FFNNModel
 from models.Transformer import TransformerModel
+from models.TCN import TCNModel
+from models.CNNLSTM import CNNLSTMModel
+from models.LSTM import LSTMModel
 
 def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
     print("[INFO] Evaluating FFNN")
@@ -235,6 +238,7 @@ def evaluate_tcn_new_test_data(batch_parameters, hyperparameters, model_name, ma
     model = TCNModel(
         input_dim=test_loader.dataset[0][0].shape[-1],
         output_dim=test_loader.dataset[0][1].shape[-1],
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap'],
         num_channels=hyperparameters['num_channels'],
         kernel_size=hyperparameters['kernel_size'],
         dropout=hyperparameters['dropout'],
@@ -409,6 +413,7 @@ def evaluate_lstm_new_test_data(batch_parameters, hyperparameters, model_name, m
     model = LSTMModel(
         input_dim=test_loader.dataset[0][0].shape[-1],
         output_dim=test_loader.dataset[0][1].shape[-1],
+        seq_len=batch_parameters['total_len'] // batch_parameters['gap'],
         lstm_hidden=hyperparameters['lstm_hidden'],
         num_layers=hyperparameters['num_layers_lstm'],
         dropout=hyperparameters['dropout'],
