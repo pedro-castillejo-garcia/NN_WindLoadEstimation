@@ -25,8 +25,6 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 # Add project root to sys.path
 sys.path.append(project_root)
 
-#rbf+keras
-from models.RBF_Keras import initialize_centroids, build_rbf_model  # fx
 #CNN
 from models.CNN import CNNModel
 #Transformer
@@ -34,6 +32,8 @@ from models.Transformer import TransformerModel
 #from models.XGBoost import XGBoostModel
 from models.RadialBasisFunctionModel import RBFN_model
 # Define EarlyStopping class
+from models.RBF_PyTorch import initialize_centroids, RBFNet
+
 
 """
 class EarlyStopping:
@@ -307,6 +307,7 @@ def train_rbf_keras(xgb_data, hyperparameters):
 
     return model
 
+
 def train_cnn(train_loader, val_loader, hyperparameters):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -370,6 +371,103 @@ def train_cnn(train_loader, val_loader, hyperparameters):
     
     return model 
 
+def train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters):
+    print("[INFO] Training RBFNet (PyTorch)")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # --- forbered data og model som før ---
+    X_train_all = torch.from_numpy(xgb_data["X_train"].astype(np.float32))
+    num_hidden  = hyperparameters["num_hidden_neurons"]
+    centroids   = initialize_centroids(X_train_all, num_hidden)
+
+    model = RBFNet(
+        input_dim=X_train_all.shape[1],
+        num_hidden_neurons=num_hidden,
+        output_dim=xgb_data["y_train"].shape[1],
+        betas=hyperparameters.get("beta_init", 0.5),
+        initial_centroids=centroids
+    ).to(device)
+
+    # # DEBUG: tjek d² og RBF-output
+    # with torch.no_grad():
+    #     sample_x = X_train_all[:10].to(device)
+    #     diff     = sample_x.unsqueeze(1) - model.rbf.centroids.unsqueeze(0)
+    #     d2       = torch.sum(diff**2, dim=2)
+    #     print(f"d² | mean: {d2.mean().item():.2f}, std: {d2.std().item():.2f}")
+    #     out = torch.exp(- model.rbf.betas.unsqueeze(0) * d2)
+    #     print(f"RBF-output | min: {out.min().item():.3e}, "
+    #           f"max: {out.max().item():.3e}, mean: {out.mean().item():.3e}")
+    #
+    # print("Initial betas:", model.rbf.betas.data.cpu().numpy()[:5])
+
+    # Optimering & loss (hæv lr til 0.1 for hurtigere opdateringer)
+    optimizer = optim.Adam(model.parameters(), lr=0.1)
+    criterion = nn.MSELoss()
+    train_losses, val_losses = [], []
+
+    for epoch in range(hyperparameters["epochs"]):
+        model.train()
+        total_train = 0.0
+
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
+
+            optimizer.zero_grad()
+            preds = model(xb.reshape(xb.size(0), -1))
+            loss = criterion(preds, yb)
+            loss.backward()
+
+            # # DEBUG: tjek gradients
+            # for name, param in model.named_parameters():
+            #     if param.grad is not None:
+            #         print(f"[grad] {name:20s} | mean: {param.grad.mean():.4e}, std: {param.grad.std():.4e}")
+            #     else:
+            #         print(f"[grad] {name:20s} | NO grad!")
+            #     break
+
+            optimizer.step()
+            total_train += loss.item() * xb.size(0)
+
+        train_loss = total_train / len(train_loader.dataset)
+        train_losses.append(train_loss)
+        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}")
+
+        # --- validering ---
+        model.eval()
+        total_val = 0.0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                preds = model(xb.reshape(xb.size(0), -1))
+                total_val += criterion(preds, yb).item() * xb.size(0)
+        val_losses.append(total_val / len(val_loader.dataset))
+
+        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, "
+              f"Train: {train_losses[-1]:.4f}, Val: {val_losses[-1]:.4f}")
+
+        # # DEBUG: vis opdaterede betas
+        # print("  Updated betas:", model.rbf.betas.data.cpu().numpy()[:5])
+
+    # Gem model
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    torch.save(model.state_dict(), os.path.join(checkpoints_dir, "rbfpytorch_latest.pth"))
+    print(f"[INFO] PyTorch-RBF model saved at checkpoints/rbfpytorch_latest.pth")
+
+    # Gem logs
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"rbfpytorch_logs_{now}.csv")
+    pd.DataFrame({
+        "Epoch": range(1, len(train_losses)+1),
+        "Train Loss": train_losses,
+        "Val Loss": val_losses
+    }).to_csv(log_path, index=False)
+    print(f"[INFO] Logs saved at {log_path}")
+
+    return model
+
 
 
 
@@ -394,7 +492,8 @@ if __name__ == "__main__":
         "max_depth": 6,
 
         #rbf-parameters:
-        "learning_rate": 0.01,
+        "learning_rate": 0.05,
+        "beta_init": 0.1,
         "num_hidden_neurons": 100,
     }
     
@@ -407,13 +506,15 @@ if __name__ == "__main__":
     #updated version
     train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
 
-    
+
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_rbfn_flag = True  # 
+    train_rbfn_flag = False  # 
     train_cnn_flag = False
+    
+    train_rbfn_pytorch_flag = True
 
     # Train Transformer if flag is set
     if train_transformer_flag:
@@ -429,4 +530,8 @@ if __name__ == "__main__":
     
     if train_cnn_flag:
         train_cnn(train_loader, val_loader, hyperparameters)
+    
+    if train_rbfn_pytorch_flag:
+        train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters)
+
    

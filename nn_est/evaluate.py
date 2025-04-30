@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from models.RBF_Keras import RBFLayer  # hvis du har brug for custom_objects
 
 from datetime import datetime
 from sklearn.metrics import mean_squared_error
