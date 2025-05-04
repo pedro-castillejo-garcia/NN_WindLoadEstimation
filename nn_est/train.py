@@ -53,7 +53,15 @@ class EarlyStopping:
 # Define training function
 def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     print("Training Transformer")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
     
     model = TransformerModel(
         input_dim=train_loader.dataset[0][0].shape[-1],
@@ -129,7 +137,7 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
 # XGBoost Training Function
 def train_xgboost(xgb_data, hyperparameters):
     print("Training XGBoost")
-
+    
     # Initialize XGBoost model
     xgb_model = XGBoostModel(
         n_estimators=hyperparameters.get("n_estimators", 200),
@@ -233,7 +241,15 @@ def train_ffnn(batch_params, hyperparameters):
 def train_one_layer_nn(batch_params, hyperparameters):
     print("Training One-Layer NN")
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
+    
     train_loader, val_loader, _, _, _, _ = prepare_dataloaders(batch_params)
     
     model = OneLayerNN(
@@ -322,7 +338,16 @@ def train_one_layer_nn(batch_params, hyperparameters):
 # TCN Training Function
 def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     print("Training TCN")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
+    
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
     model = TCNModel(
@@ -417,7 +442,15 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
 #Training CNN-LSTM
 def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
     print("Training CNN-LSTM")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
 
     model = CNNLSTMModel(
         input_dim=train_loader.dataset[0][0].shape[-1],
@@ -505,7 +538,15 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
 #Training LSTM
 def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     print("Training LSTM")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
 
     model = LSTMModel(
         input_dim=train_loader.dataset[0][0].shape[-1],
@@ -588,8 +629,6 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     train_time_path = os.path.join(logs_dir, f"lstm_training_time_{current_datetime}.csv")
     train_time_df.to_csv(train_time_path, index=False)
     print(f"Training time saved at {train_time_path}")
-
-
 
 if __name__ == "__main__":              
     

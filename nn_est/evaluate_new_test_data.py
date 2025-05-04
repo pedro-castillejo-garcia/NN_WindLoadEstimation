@@ -31,8 +31,15 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name, m
 
     test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
+    
     
     ffnn_model = FFNNModel(
         input_dim=test_loader.dataset[0][0].shape[-1],
@@ -123,7 +130,13 @@ def evaluate_transformer_new_test_data(batch_parameters, hyperparameters, model_
 
     test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
     print(f"[INFO] Using device: {device}")
 
     transformer_model = TransformerModel(
@@ -235,7 +248,13 @@ def evaluate_tcn_new_test_data(batch_parameters, hyperparameters, model_name, ma
 
     test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
     print(f"[INFO] Using device: {device}")
 
     tcn_model = TCNModel(
@@ -347,7 +366,13 @@ def evaluate_cnnlstm_new_test_data(batch_parameters, hyperparameters, model_name
 
     test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
     print(f"[INFO] Using device: {device}")
 
     cnnlstm_model = CNNLSTMModel(
@@ -455,7 +480,13 @@ def evaluate_lstm_new_test_data(batch_parameters, hyperparameters, model_name, m
 
     test_loader, scaler_x, scaler_y, source_tensor = prepare_dataloaders_new_test_data(batch_parameters, max_files=max_files)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
     print(f"[INFO] Using device: {device}")
 
     lstm_model = LSTMModel(

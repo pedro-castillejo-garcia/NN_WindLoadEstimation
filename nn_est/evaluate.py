@@ -300,7 +300,6 @@ def evaluate_one_layer_nn(batch_parameters, model_name):
     plot_results(y_true, y_pred, scaler_y, model_name, "One_Layer_NN", mse)
 
 
-
 def evaluate_tcn(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating TCN model...")
 
@@ -567,7 +566,6 @@ if __name__ == "__main__":
     tcn_model_name = "tcn_latest.pth"
     cnn_lstm_model_name = "cnn-_lstm_latest.pth"
     lstm_model_name = "lstm_latest.pth"
-
 
     # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE
     
