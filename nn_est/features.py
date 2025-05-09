@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
-
 from hyperparameters import batch_parameters
 
 # Automatically find the absolute path of NN_WindLoadEstimation
@@ -15,7 +14,7 @@ def create_sequences(data, targets, gap, total_len):
         for i in range(len(data) - total_len + 1):
             X_seq.append(data[i + gap - 1 : i + total_len: gap])
             y_seq.append(targets[i + total_len - 1])
-        return np.array(X_seq), np.array(y_seq)
+        return np.array(X_seq, dtype=np.float32), np.array(y_seq,dtype=np.float32)
 
 def load_data(batch_parameters):
     # Define file paths using absolute paths
@@ -127,6 +126,43 @@ def prepare_dataloaders(batch_parameters):
     }
 
     return train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y
+#For static rbfmodel
+def prepare_flat_dataloaders(batch_parameters):
+    """
+    Loader til statiske/non-sekventielle modeller.
+    Returnerer train_loader, val_loader, xgb_data inklusive scaler_y
+    """
+    (train_x, train_y,
+     val_x,   val_y,
+     _t_x, _t_y,        # test-split bruges ikke her
+     _scaler_x, scaler_y) = load_data(batch_parameters)   # <-- tag scaler_y med
+
+    # ---------- PyTorch ----------
+    X_tr = torch.tensor(train_x, dtype=torch.float32)
+    y_tr = torch.tensor(train_y, dtype=torch.float32)
+    X_va = torch.tensor(val_x,   dtype=torch.float32)
+    y_va = torch.tensor(val_y,   dtype=torch.float32)
+
+    train_loader = DataLoader(
+        TensorDataset(X_tr, y_tr),
+        batch_size=batch_parameters["batch_size"],
+        shuffle=True
+    )
+    val_loader = DataLoader(
+        TensorDataset(X_va, y_va),
+        batch_size=batch_parameters["batch_size"],
+        shuffle=False
+    )
+
+    # ---------- dict til RBF / XGBoost m.m. ----------
+    xgb_data = {
+        "X_train":  train_x,
+        "y_train":  train_y,
+        "X_val":    val_x,
+        "y_val":    val_y,
+        "scaler_y": scaler_y        # nu findes variablen!
+    }
+    return train_loader, val_loader, xgb_data
 
 
 if __name__ == "__main__":

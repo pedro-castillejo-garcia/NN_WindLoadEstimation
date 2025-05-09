@@ -7,16 +7,16 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+#from features import prepare_flat_dataloaders   # <-- ny import
 import tensorflow as tf
 import keras as keras
-from tensorflow.keras.callbacks import EarlyStopping
-
-
 
 
 from datetime import datetime
 from features import load_data
 from features import prepare_dataloaders
+from features import prepare_flat_dataloaders
+from hyperparameters import batch_parameters, hyperparameters
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -35,503 +35,305 @@ from models.RadialBasisFunctionModel import RBFN_model
 from models.RBF_PyTorch import initialize_centroids, RBFNet
 
 
-"""
 class EarlyStopping:
-    def __init__(self, patience=10, delta=0.001):
-        self.patience = patience
-        self.delta = delta
-        self.best_loss = np.inf
-        self.counter = 0
+    """
+    Stopper træningen, hvis valideringstabet ikke er forbedret
+    `patience` gange i træk med mindst `delta`.
+    """
+    def __init__(self, patience=5, delta=5e-5):
+        self.patience   = patience
+        self.delta      = delta
+        self.best_loss  = float("inf")
+        self.counter    = 0
         self.early_stop = False
 
-    def __call__(self, val_loss):
+    def __call__(self, val_loss: float):
+        # bedre end hidtil?
         if val_loss < self.best_loss - self.delta:
             self.best_loss = val_loss
-            self.counter = 0
+            self.counter   = 0
         else:
             self.counter += 1
             if self.counter >= self.patience:
-                self.early_stop = True"
-"""
-
-# Define training function
-def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
-    print("Training Transformer")
+                self.early_stop = True
+                
+def train_cnn(train_loader, val_loader, hyperparams, model_name, gap):
+    """Træn CNN og gem den som <model_name> (gap bruges kun til printk)."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    model = TransformerModel(
-        input_dim=train_loader.dataset[0][0].shape[-1],
-        output_dim=train_loader.dataset[0][1].shape[-1],
-        seq_len=batch_params['total_len'] // batch_params['gap'],
-        d_model=hyperparameters['d_model'],
-        nhead=hyperparameters['nhead'],
-        num_layers=hyperparameters['num_layers'],
-        dim_feedforward=hyperparameters['dim_feedforward'],
-        dropout=hyperparameters['dropout'],
-        layer_norm_eps=hyperparameters['layer_norm_eps']
-    )
-    model.to(device)
-    
+
+    in_channels = train_loader.dataset.tensors[0].shape[-1]
+    seq_len     = train_loader.dataset.tensors[0].shape[1]
+    out_dim     = train_loader.dataset.tensors[1].shape[-1]
+
+    model = CNNModel(in_channels=in_channels,
+                     seq_length=seq_len,
+                     num_outputs=out_dim).to(device)
+
     criterion = nn.MSELoss()
-    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
-    
-    early_stopping = EarlyStopping(patience=5, delta=0.00001)
-    
+    optimizer = optim.Adam(model.parameters(),
+                           lr=hyperparams["learning_rate"])
+    epochs = hyperparams["epochs"]
+    es = EarlyStopping(patience=5, delta=5e-5)
+
     train_losses, val_losses = [], []
-    
-    for epoch in range(hyperparameters['epochs']):
-        model.train()
-        train_loss = 0.0
-        for X_batch, y_batch in train_loader:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            
-            optimizer.zero_grad()
-            predictions = model(X_batch)
-            loss = criterion(predictions, y_batch)
-            loss.backward()
-            optimizer.step()
-            train_loss += loss.item()
-        
-        train_loss /= len(train_loader)
-        train_losses.append(train_loss)
-        
-        # Evaluate on validation set
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for X_batch, y_batch in val_loader:
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                predictions = model(X_batch)
-                loss = criterion(predictions, y_batch)
-                val_loss += loss.item()
-        
-        val_loss /= len(val_loader)
-        val_losses.append(val_loss)
-        
-        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-        
-        early_stopping(val_loss)
-        if early_stopping.early_stop:
-            print("Early stopping triggered. Stopping training.")
-            break
-    
-    # Create directories if they don't exist
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    logs_dir = os.path.join(project_root, "logs", "training_logs")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-    os.makedirs(logs_dir, exist_ok=True)
-    
-    # Save the model with current date and time
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
-    model_path = os.path.join(checkpoints_dir, f"transformer_latest.pth") 
-    torch.save(model.state_dict(), model_path)
-    
-    # Save training logs to CSV inside the training_logs folder
-    log_path = os.path.join(logs_dir, f"training_logs_{current_datetime}.csv")
-    logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
-    logs_df.to_csv(log_path, index=False)
-    print(f"Training logs saved as {log_path}")
-
-
-# XGBoost Training Function
-def train_xgboost(xgb_data, hyperparameters):
-    print("Training XGBoost")
-
-    # Initialize XGBoost model
-    xgb_model = XGBoostModel(
-        n_estimators=hyperparameters.get("n_estimators", 200),
-        max_depth=hyperparameters.get("max_depth", 6),
-        learning_rate=hyperparameters.get("learning_rate", 0.05)
-    )
-
-    # Train model
-    xgb_model.train(xgb_data["X_train"], xgb_data["y_train"])
-
-    # Validate model
-    predictions = xgb_model.predict(xgb_data["X_val"])
-
-    # Compute metrics
-    rmse = np.sqrt(mean_squared_error(xgb_data["y_val"], predictions))
-    mae = mean_absolute_error(xgb_data["y_val"], predictions)
-    r2 = r2_score(xgb_data["y_val"], predictions)
-
-    print(f"XGBoost Results: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
-
-     # Save model in checkpoints directory
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-
-    xgboost_model_path = os.path.join(checkpoints_dir, "xgboost_latest.json")
-    xgb_model.model.save_model(xgboost_model_path)
-    print(f"[INFO] XGBoost model saved at {xgboost_model_path}")
-    
-    return xgb_model
-
-def train_rbfn(xgb_data, hyperparameters):
-   
-    print("[INFO] Training RBFN")
-
-    # getting data
-    X_train = xgb_data["X_train"]
-    y_train = xgb_data["y_train"]
-    X_val   = xgb_data["X_val"]
-    y_val   = xgb_data["y_val"]
-
-    #  setting parameters
-    input_dim  = X_train.shape[1]
-    output_dim = y_train.shape[1]
-    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 100)
-    learning_rate      = hyperparameters.get("learning_rate", 0.01)
-    epochs             = hyperparameters.get("epochs", 10)
-    
-    #init
-    model = RBFN_model(input_dim, num_hidden_neurons, output_dim, learning_rate=learning_rate)
-
-    #train
-    train_losses, val_losses = model.train(
-        X_train, y_train,
-        X_val=X_val, y_val=y_val,
-        epochs=epochs
-    )
-
-    #val
-    val_pred = model.predict(X_val)
-    val_mse = mean_squared_error(y_val, val_pred)
-    val_rmse = np.sqrt(val_mse)
-    print(f"[INFO] RBFN Validation: MSE={val_mse:.4f}, RMSE={val_rmse:.4f}")
-
-    # saving the modelparameters, to .npz (centroids, betas, weights)
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-    model_path = os.path.join(checkpoints_dir, "rbfn_latest.npz")
-
-    np.savez(model_path,
-             centroids=model.centroids,
-             betas=model.betas,
-             weights=model.weights)
-    print(f"[INFO] RBFN model saved at {model_path}")
-
-    #logging epochs, train_loss, val_loss til CSV
-    logs_dir = os.path.join(project_root, "logs", "training_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = os.path.join(logs_dir, f"rbfn_training_logs_{current_datetime}.csv")
-    
-    logs_df = pd.DataFrame({
-        "Epoch": range(1, len(train_losses)+1),
-        "Train Loss": train_losses,
-        "Val Loss": val_losses
-    })
-    logs_df.to_csv(log_path, index=False)
-    print(f"[INFO] RBFN training logs saved at {log_path}")
-
-    return model
-
-def train_rbf_keras(xgb_data, hyperparameters):
-    print("[INFO] Training RBFN (Keras version)")
-
-    # getting data
-    X_train = xgb_data["X_train"]
-    y_train = xgb_data["y_train"]
-    X_val   = xgb_data["X_val"]
-    y_val   = xgb_data["y_val"]
-
-    # setting parameters
-    input_dim  = X_train.shape[1]
-    output_dim = y_train.shape[1]
-    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 100)
-    learning_rate      = hyperparameters.get("learning_rate", 0.01)
-    epochs             = hyperparameters.get("epochs", 10)
-    batch_size         = 32  # eller læs det fra dine hyperparametre
-
-    # KMeans initialization for centroids
-    centroids_init = initialize_centroids(X_train, num_hidden_neurons)
-
-    # Build Keras model
-    model = build_rbf_model(input_dim, num_hidden_neurons, output_dim,
-                            initial_centroids=centroids_init)
-
-    # Compile model
-    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    model.compile(optimizer=optimizer, loss='mse')
-
-    # Early stopping
-    patience = 5
-    es_callback = EarlyStopping(monitor='val_loss', patience=patience, restore_best_weights=True)
-
-    # Fit model
-    history = model.fit(
-        X_train, y_train,
-        validation_data=(X_val, y_val),
-        epochs=epochs,
-        batch_size=batch_size,
-        callbacks=[es_callback],
-        verbose=1
-    )
-
-    # Train & validation losses
-    train_losses = history.history['loss']
-    val_losses   = history.history['val_loss']
-
-    # Evaluate on val
-    val_pred = model.predict(X_val)
-    val_mse = mean_squared_error(y_val, val_pred)
-    val_rmse = np.sqrt(val_mse)
-    print(f"[INFO] Keras-RBFN Validation: MSE={val_mse:.4f}, RMSE={val_rmse:.4f}")
-
-    
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, ".."))
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-    model_path = os.path.join(checkpoints_dir, "rbfn_keras_latest.keras")
-    
-    model.save(model_path)
-    print(f"[INFO] Keras-RBFN model saved at {model_path}")
-
-    # Logging training
-    logs_dir = os.path.join(project_root, "logs", "training_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = os.path.join(logs_dir, f"rbfn_keras_training_logs_{current_datetime}.csv")
-
-    logs_df = pd.DataFrame({
-        "Epoch": range(1, len(train_losses)+1),
-        "Train Loss": train_losses,
-        "Val Loss": val_losses
-    })
-    logs_df.to_csv(log_path, index=False)
-    print(f"[INFO] Keras-RBFN training logs saved at {log_path}")
-
-    return model
-
-
-def train_cnn(train_loader, val_loader, hyperparameters):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Antag, at dine data har 12 features, sekvenslængden er 10, og output-dimensionen er 3.
-    # Juster disse værdier efter dine batch_params og data.
-    model = CNNModel(in_channels=12, seq_length=10, num_outputs=3).to(device)
-    
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=hyperparameters['learning_rate'])
-    
-    epochs = hyperparameters.get("epochs", 10)
-    train_losses, val_losses = [], []
-    
     for epoch in range(epochs):
-        model.train()
-        epoch_train_loss = 0.0
-        for X_batch, y_batch in train_loader:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-            optimizer.zero_grad()
-            predictions = model(X_batch)
-            loss = criterion(predictions, y_batch)
-            loss.backward()
-            optimizer.step()
-            epoch_train_loss += loss.item()
-        epoch_train_loss /= len(train_loader)
-        train_losses.append(epoch_train_loss)
-        
-        # Evalueringsfase: beregn valideringstabet
-        model.eval()
-        epoch_val_loss = 0.0
-        with torch.no_grad():
-            for X_batch, y_batch in val_loader:
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
-                predictions = model(X_batch)
-                loss = criterion(predictions, y_batch)
-                epoch_val_loss += loss.item()
-        epoch_val_loss /= len(val_loader)
-        val_losses.append(epoch_val_loss)
-        
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {epoch_train_loss:.4f}, Val Loss: {epoch_val_loss:.4f}")
-    
-    # Gem modellen: eksempelvis gem state_dict
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    model_path = os.path.join(checkpoints_dir, f"cnn_latest.pth")
-    torch.save(model.state_dict(), model_path)
-    print(f"[INFO] CNN model saved at {model_path}")
-    
-    # Gem træningslog, hvis det ønskes
-    logs_dir = os.path.join(project_root, "logs", "training_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    log_path = os.path.join(logs_dir, f"cnn_training_logs_{current_datetime}.csv")
-    logs_df = pd.DataFrame({
-        "Epoch": range(1, len(train_losses)+1),
-        "Train Loss": train_losses,
-        "Val Loss": val_losses
-    })
-    logs_df.to_csv(log_path, index=False)
-    print(f"[INFO] CNN training logs saved at {log_path}")
-    
-    return model 
-
-def train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters):
-    print("[INFO] Training RBFNet (PyTorch)")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # --- forbered data og model som før ---
-    X_train_all = torch.from_numpy(xgb_data["X_train"].astype(np.float32))
-    num_hidden  = hyperparameters["num_hidden_neurons"]
-    centroids   = initialize_centroids(X_train_all, num_hidden)
-
-    model = RBFNet(
-        input_dim=X_train_all.shape[1],
-        num_hidden_neurons=num_hidden,
-        output_dim=xgb_data["y_train"].shape[1],
-        betas=hyperparameters.get("beta_init", 0.5),
-        initial_centroids=centroids
-    ).to(device)
-
-    # # DEBUG: tjek d² og RBF-output
-    # with torch.no_grad():
-    #     sample_x = X_train_all[:10].to(device)
-    #     diff     = sample_x.unsqueeze(1) - model.rbf.centroids.unsqueeze(0)
-    #     d2       = torch.sum(diff**2, dim=2)
-    #     print(f"d² | mean: {d2.mean().item():.2f}, std: {d2.std().item():.2f}")
-    #     out = torch.exp(- model.rbf.betas.unsqueeze(0) * d2)
-    #     print(f"RBF-output | min: {out.min().item():.3e}, "
-    #           f"max: {out.max().item():.3e}, mean: {out.mean().item():.3e}")
-    #
-    # print("Initial betas:", model.rbf.betas.data.cpu().numpy()[:5])
-
-    # Optimering & loss (hæv lr til 0.1 for hurtigere opdateringer)
-    optimizer = optim.Adam(model.parameters(), lr=0.1)
-    criterion = nn.MSELoss()
-    train_losses, val_losses = [], []
-
-    for epoch in range(hyperparameters["epochs"]):
-        model.train()
-        total_train = 0.0
-
+        # -------- train ---------------------------------------
+        model.train(); epoch_train = 0.0
         for xb, yb in train_loader:
             xb, yb = xb.to(device), yb.to(device)
-
             optimizer.zero_grad()
-            preds = model(xb.reshape(xb.size(0), -1))
-            loss = criterion(preds, yb)
-            loss.backward()
+            loss = criterion(model(xb), yb)
+            loss.backward(); optimizer.step()
+            epoch_train += loss.item()
+        train_losses.append(epoch_train / len(train_loader))
 
-            # # DEBUG: tjek gradients
-            # for name, param in model.named_parameters():
-            #     if param.grad is not None:
-            #         print(f"[grad] {name:20s} | mean: {param.grad.mean():.4e}, std: {param.grad.std():.4e}")
-            #     else:
-            #         print(f"[grad] {name:20s} | NO grad!")
-            #     break
-
-            optimizer.step()
-            total_train += loss.item() * xb.size(0)
-
-        train_loss = total_train / len(train_loader.dataset)
-        train_losses.append(train_loss)
-        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}")
-
-        # --- validering ---
-        model.eval()
-        total_val = 0.0
+        # -------- val -----------------------------------------
+        model.eval(); epoch_val = 0.0
         with torch.no_grad():
             for xb, yb in val_loader:
                 xb, yb = xb.to(device), yb.to(device)
-                preds = model(xb.reshape(xb.size(0), -1))
-                total_val += criterion(preds, yb).item() * xb.size(0)
-        val_losses.append(total_val / len(val_loader.dataset))
+                epoch_val += criterion(model(xb), yb).item()
+        val_loss = epoch_val / len(val_loader)
+        val_losses.append(val_loss)
 
-        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, "
-              f"Train: {train_losses[-1]:.4f}, Val: {val_losses[-1]:.4f}")
+        print(f"[CNN gap={gap}] Epoch {epoch+1}/{epochs}  "
+              f"train={train_losses[-1]:.4f}  val={val_losses[-1]:.4f}")
+        
+        es(val_loss)
+        if es.early_stop:
+                print(f"[CNN] Early stopping efter {epoch+1} epochs "
+                        f"(bedste val.loss = {es.best_loss:.4f})")
+                break
 
-        # # DEBUG: vis opdaterede betas
-        # print("  Updated betas:", model.rbf.betas.data.cpu().numpy()[:5])
 
-    # Gem model
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(checkpoints_dir, "rbfpytorch_latest.pth"))
-    print(f"[INFO] PyTorch-RBF model saved at checkpoints/rbfpytorch_latest.pth")
+   
+    # -------- gem -------------------------------------------
+    repo_root  = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    checkpoints = os.path.join(repo_root, "checkpoints")
+    logs_dir    = os.path.join(repo_root, "logs", "training_logs")
+    os.makedirs(checkpoints, exist_ok=True)
+    os.makedirs(logs_dir,    exist_ok=True)
 
-    # Gem logs
-    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    torch.save(model.state_dict(), os.path.join(checkpoints, model_name))
+    print(f"[INFO] CNN gemt → checkpoints/{model_name}")
+
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    pd.DataFrame({"epoch": range(1, len(train_losses)+1),
+                  "train_loss": train_losses,
+                  "val_loss": val_losses}) \
+      .to_csv(os.path.join(
+              logs_dir,
+              f"{model_name.replace('.pth','')}_logs_{ts}.csv"),
+              index=False)
+    return model
+
+def train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters,
+                     model_name, gap):
+    print(f"[INFO] Training RBFNet (PyTorch) | gap={gap}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 0) Tjek for NaN/inf i xgb_data før noget andet
+    import numpy as _np
+    assert not _np.isnan(xgb_data["X_train"]).any(), "X_train indeholder NaN!"
+    assert not _np.isnan(xgb_data["y_train"]).any(), "y_train indeholder NaN!"
+    assert not _np.isinf(xgb_data["X_train"]).any(), "X_train indeholder inf!"
+    assert not _np.isinf(xgb_data["y_train"]).any(), "y_train indeholder inf!"
+
+    # 1) Model + centroids
+    X_train_all = torch.from_numpy(xgb_data["X_train"].astype(np.float32))
+    centroids   = initialize_centroids(
+        X_train_all,
+        hyperparameters["num_hidden_neurons"]
+    )
+    model = RBFNet(
+        input_dim = X_train_all.shape[1],
+        num_hidden_neurons = hyperparameters["num_hidden_neurons"],
+        output_dim = xgb_data["y_train"].shape[1],
+        betas = hyperparameters.get("beta_init", 0.5),
+        initial_centroids = centroids
+    ).to(device)
+
+    # 2) Criterion og OPT med lavere LR
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=hyperparameters.get("learning_rate", 0.1) * 0.01  # fx 100× lavere
+    )
+
+    # 3) Anomaly detection
+    torch.autograd.set_detect_anomaly(True)
+
+    es        = EarlyStopping(patience=5, delta=5e-5)
+    train_losses, val_losses = [], []
+
+    for epoch in range(1, hyperparameters["epochs"] + 1):
+        # ---- train ----
+        model.train()
+        tot_train = 0.0
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
+            optimizer.zero_grad()
+            out = model(xb.reshape(xb.size(0), -1))
+            loss = criterion(out, yb)
+            loss.backward()
+
+            # 4) Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+            tot_train += loss.item() * xb.size(0)
+
+        train_loss = tot_train / len(train_loader.dataset)
+        train_losses.append(train_loss)
+
+        # ---- val ----
+        model.eval()
+        tot_val = 0.0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                out = model(xb.reshape(xb.size(0), -1))
+                tot_val += criterion(out, yb).item() * xb.size(0)
+        val_loss = tot_val / len(val_loader.dataset)
+        val_losses.append(val_loss)
+
+        print(f"Epoch {epoch:2d}  train={train_loss:.4e}  val={val_loss:.4e}")
+        es(val_loss)
+        if es.early_stop:
+            print(f"[EarlyStopping] Stoppede efter {epoch} epoker "
+                  f"(bedste val.loss = {es.best_loss:.4e})")
+            break
+
+    # ----- Gem vægte + logs som før -----
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    ckpt = os.path.join(root, "checkpoints", model_name)
+    torch.save(model.state_dict(), ckpt)
+    print(f"[INFO] Gemte vægte → {ckpt}")
+
+    logs_dir = os.path.join(root, "logs", "training_logs")
     os.makedirs(logs_dir, exist_ok=True)
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = os.path.join(logs_dir, f"rbfpytorch_logs_{now}.csv")
     pd.DataFrame({
-        "Epoch": range(1, len(train_losses)+1),
-        "Train Loss": train_losses,
-        "Val Loss": val_losses
-    }).to_csv(log_path, index=False)
-    print(f"[INFO] Logs saved at {log_path}")
+        "epoch":      range(1, len(train_losses)+1),
+        "train_loss": train_losses,
+        "val_loss":   val_losses
+    }).to_csv(os.path.join(logs_dir,
+               f"{model_name.replace('.pth','')}_logs_{now}.csv"),
+              index=False)
+
+    return model
+
+def train_rbfpytorch_static(train_loader, val_loader,
+                            xgb_data, hyperparams,
+                            model_name):
+    """Statisk (non-sekventiel) træning af PyTorch-RBF-net."""
+    print("[INFO] Training *static* RBFNet")
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # --- init centroids & model ---------------------------------
+    X_train_all = torch.from_numpy(xgb_data["X_train"].astype(np.float32))
+    centroids   = initialize_centroids(
+        X_train_all, hyperparams["num_hidden_neurons"]
+    )
+
+    model = RBFNet(
+        input_dim = X_train_all.shape[1],
+        num_hidden_neurons = hyperparams["num_hidden_neurons"],
+        output_dim = xgb_data["y_train"].shape[1],
+        betas  = hyperparams.get("beta_init", 0.5),
+        initial_centroids = centroids
+    ).to(dev)
+
+    crit = nn.MSELoss()
+    opt  = optim.Adam(model.parameters(),
+                      lr = hyperparams.get("learning_rate", 1e-3))
+
+    es = EarlyStopping(patience=5, delta=5e-5)
+    tr_losses, va_losses = [], []
+
+    for ep in range(1, hyperparams["epochs"] + 1):
+        # ---------- train ----------
+        model.train(); tot = 0.0
+        for xb, yb in train_loader:
+            xb, yb = xb.to(dev), yb.to(dev)
+            opt.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
+            tot += loss.item() * xb.size(0)
+        tr_loss = tot / len(train_loader.dataset)
+        tr_losses.append(tr_loss)
+
+        # ---------- val ------------
+        model.eval(); tot = 0.0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(dev), yb.to(dev)
+                tot += crit(model(xb), yb).item() * xb.size(0)
+        va_loss = tot / len(val_loader.dataset)
+        va_losses.append(va_loss)
+
+        print(f"Epoch {ep:3d}  train={tr_loss:.4e}  val={va_loss:.4e}")
+        es(va_loss)
+        if es.early_stop:
+            print(f"[EarlyStopping] stoppede ved epoch {ep} "
+                  f"(best val={es.best_loss:.4e})")
+            break
+
+    # ---------- gem vægte + logs ----------
+    ckpt_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(ckpt_dir, exist_ok=True)
+    torch.save(model.state_dict(),
+               os.path.join(ckpt_dir, model_name))
+    print(f"[INFO] Gemt → checkpoints/{model_name}")
+
+    log_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    pd.DataFrame({
+        "epoch":      range(1, len(tr_losses)+1),
+        "train_loss": tr_losses,
+        "val_loss":   va_losses
+    }).to_csv(os.path.join(
+        log_dir, f"{model_name.replace('.pth','')}_logs_{ts}.csv"),
+        index=False)
 
     return model
 
 
-
-
 if __name__ == "__main__":
-    batch_params = {
-        "gap": 10,
-        "total_len": 100,
-        "batch_size": 32,
-    }
-    
-    hyperparameters = {
-        "dropout": 0.3,
-        "d_model": 64,
-        "nhead": 4,
-        "num_layers": 2,
-        "dim_feedforward": 256,
-        "layer_norm_eps": 1e-5,
-        #"learning_rate": 1e-4,
-        "weight_decay": 1e-4,
-        "epochs": 10,                  # CHANGE THIS TO 10 LATER
-        "n_estimators": 200,
-        "max_depth": 6,
+    SELECTED_GAP = 10
+    run_params   = batch_parameters | {"gap": SELECTED_GAP}
 
-        #rbf-parameters:
-        "learning_rate": 0.05,
-        "beta_init": 0.1,
-        "num_hidden_neurons": 100,
-    }
-    
-    # Load preprocessed data
+    train_rbfn_pytorch_flag = False      
+    train_rbfn_static_flag  = True      
+    train_cnn_flag          = False
 
-   
-    #Prepare loader returns 6 values? 
-    #train_loader, val_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
-    
-    #updated version
-    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    # ---------------- loaders to the sequantial models -----------
+    if train_rbfn_pytorch_flag or train_cnn_flag:
+        train_loader, val_loader, test_loader, xgb_data, *_ = \
+            prepare_dataloaders(run_params)
 
-
-    # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
-    
-    train_transformer_flag = False  # Set to True to train Transformer
-    train_xgboost_flag = False  # Set to True to train XGBoost
-    train_rbfn_flag = False  # 
-    train_cnn_flag = False
-    
-    train_rbfn_pytorch_flag = True
-
-    # Train Transformer if flag is set
-    if train_transformer_flag:
-        train_transformer(train_loader, val_loader, batch_params, hyperparameters)
-
-    # Train XGBoost if flag is set
-    if train_xgboost_flag:
-        train_xgboost(xgb_data, hyperparameters)
-
-    if train_rbfn_flag:
-        #train_rbfn(xgb_data, hyperparameters)
-        train_rbf_keras(xgb_data, hyperparameters)
-    
     if train_cnn_flag:
-        train_cnn(train_loader, val_loader, hyperparameters)
-    
+        model_name = f"cnn_gap{SELECTED_GAP}.pth"
+        train_cnn(train_loader, val_loader,
+                  hyperparameters,
+                  model_name=model_name,
+                  gap=SELECTED_GAP)
+
     if train_rbfn_pytorch_flag:
-        train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters)
+        model_name = f"rbfpytorch_gap{SELECTED_GAP}.pth"
+        train_rbfpytorch(train_loader, val_loader,
+                         xgb_data, hyperparameters,
+                         model_name=model_name, gap=SELECTED_GAP)
+
+    if train_rbfn_static_flag:
+        tr_loader, va_loader, xgb_dict = prepare_flat_dataloaders(batch_parameters)
+        train_rbfpytorch_static(tr_loader, va_loader,
+                                xgb_dict, hyperparameters,
+                                model_name="rbfpytorch_static.pth")
+    
 
    

@@ -10,6 +10,8 @@ from sklearn.metrics import mean_squared_error
 from torch.utils.data import TensorDataset, DataLoader
 import sys
 from features import prepare_dataloaders
+from hyperparameters import batch_parameters, hyperparameters
+from features import prepare_flat_dataloaders 
 
 # Get the absolute path of the project's root directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,348 +20,227 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 # Add project root to sys.path
 sys.path.append(project_root)
 
-from models.Transformer import TransformerModel
-#from models.XGBoost import XGBoostModel
-from models.RadialBasisFunctionModel import RBFN_model
+
 from models.CNN import CNNModel
-from models.CNN import CNNModel
+from models.RBF_PyTorch import RBFNet
 
-def evaluate_transformer(batch_params, hyperparameters, model_name):
-    print("[INFO] Evaluating Transformer model...")
-
-    # Load test data
-    train_loader, val_loader, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
-    
-    test_data_x = test_loader.dataset.tensors[0].numpy()
-    test_data_y = test_loader.dataset.tensors[1].numpy()
-
-    print(f"[INFO] Test data loaded: X shape: {test_data_x.shape}, Y shape: {test_data_y.shape}")
-
-    # Select device
+def evaluate_cnn(batch_params,
+                 hyperparameters,
+                 model_name="cnn_latest.pth"):
+    # 1) data
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Using device: {device}")
 
-    # Path to saved model
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_path = os.path.join(checkpoints_dir, model_name)
-    print(f"[INFO] Loading model from: {model_path}")
+    # 2) model-genopbygning
+    in_channels = test_loader.dataset.tensors[0].shape[-1]
+    seq_len     = batch_params["total_len"] // batch_params["gap"]
+    out_dim     = test_loader.dataset.tensors[1].shape[-1]
 
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"[ERROR] Model file {model_name} not found in {checkpoints_dir}")
+    model = CNNModel(in_channels=in_channels,
+                     seq_length=seq_len,
+                     num_outputs=out_dim).to(device)
 
-    # Construct model architecture exactly matching trained model
-    model = TransformerModel(
-        input_dim=train_loader.dataset.tensors[0].shape[-1],  
-        output_dim=train_loader.dataset.tensors[1].shape[-1],  
-        seq_len=batch_params['total_len'] // batch_params['gap'],
-        d_model=hyperparameters['d_model'],
-        nhead=hyperparameters['nhead'],
-        num_layers=hyperparameters['num_layers'],
-        dim_feedforward=hyperparameters['dim_feedforward'],
-        dropout=hyperparameters['dropout'],
-        layer_norm_eps=hyperparameters['layer_norm_eps']
-    )
-
-    print("[INFO] Model architecture initialized.")
-
-    # Load weights and move to device
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
+    # 3) vægte
+    ckpt = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(ckpt):
+        raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
+    model.load_state_dict(torch.load(ckpt, map_location=device))
     model.eval()
-    print("[INFO] Model loaded successfully.")
 
-    # Convert test data to tensors
-    X_test_tensor = torch.tensor(test_data_x, dtype=torch.float32)
-    Y_test_tensor = torch.tensor(test_data_y, dtype=torch.float32)
-
-    # Build a DataLoader for test data in small mini‐batches
-    test_dataset = TensorDataset(X_test_tensor, Y_test_tensor)
-    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)  
-
-    print("[INFO] Generating predictions in mini-batches...")
-
-    all_preds = []
-    all_targets = []
-
+    # 4) inference
+    preds, trues = [], []
     with torch.no_grad():
-        for X_batch, Y_batch in test_loader:
-            X_batch = X_batch.to(device)
-            preds = model(X_batch).cpu().numpy()
-            all_preds.append(preds)
-            all_targets.append(Y_batch.numpy())
+        for xb, yb in test_loader:
+            preds.append(model(xb.to(device)).cpu().numpy())
+            trues.append(yb.numpy())
 
-    # Concatenate all mini-batch results
-    y_pred = np.concatenate(all_preds, axis=0)
-    y_true = np.concatenate(all_targets, axis=0)
+    y_pred = np.concatenate(preds)
+    y_true = np.concatenate(trues)
 
-    print(f"[INFO] Combined predictions shape: {y_pred.shape}")
+    # 5) MSE i original skala
+    inv_pred = scaler_y.inverse_transform(y_pred)
+    inv_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inv_true, inv_pred)
+    print(f"[CNN] Test MSE = {mse:.4f}")
 
-    # Compute MSE in original scale
-    inversed_pred = scaler_y.inverse_transform(y_pred)
-    inversed_true = scaler_y.inverse_transform(y_true)
-    mse = mean_squared_error(inversed_true, inversed_pred)
-    print(f"[INFO] Computed MSE: {mse}")
-
-    # Save MSE results
+    # 6) gem log som dine andre modeller
     logs_dir = os.path.join(project_root, "logs", "test_logs")
     os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"transformer_logs_{current_datetime}.csv")
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"cnn_logs_{ts}.csv")
 
     mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_params.keys()),
+        "Value":  [mse]   + list(hyperparameters.values()) + list(batch_params.values())
     })
-    mse_df.to_csv(mse_log_path, index=False)
-    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+    mse_df.to_csv(log_path, index=False)
+    print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
 
-    # Call the separate plot function
-    plot_results(y_true, y_pred, scaler_y, project_root, model_name="transformer_latest.pth", model_type="Transformer")
-
+    # (valgfrit) plot
+    plot_cnn_results(y_true, y_pred, scaler_y)
     return mse
-"""
-def evaluate_xgboost(batch_params, hyperparameters, model_name):
-    print("[INFO] Evaluating XGBoost model...")
 
-    # Load test data
-    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+def evaluate_rbf_pytorch(batch_params,
+                         hyperparameters,
+                         model_name="rbfpytorch_latest.pth"):
+    """
+    Evaluerer et trænet RBFNet (PyTorch) på test-split:
+      • flader sekvenser ud   (batch, seq_len, feat) → (batch, seq_len*feat)
+      • beregner MSE i originals­kala
+      • logger MSE + alle hyper/batch-parametre til CSV
+    """
+    # ---------- data -------------------------------------------------------
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Initialize XGBoost model
-    xgb_model = XGBoostModel(
-        n_estimators=hyperparameters.get("n_estimators", 200),
-        max_depth=hyperparameters.get("max_depth", 6),
-        learning_rate=hyperparameters.get("learning_rate", 0.05)
-    )
+    in_channels = test_loader.dataset.tensors[0].shape[-1]                # 12
+    seq_len     = batch_params['total_len'] // batch_params['gap']        # fx 100
+    flat_dim    = in_channels * seq_len                                   # 1200
+    out_dim     = test_loader.dataset.tensors[1].shape[-1]                # 3
 
-    # Load model weights if saved
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_path = os.path.join(checkpoints_dir, model_name)
+    # ---------- model ------------------------------------------------------
+    model = RBFNet(
+        input_dim          = flat_dim,
+        num_hidden_neurons = hyperparameters['num_hidden_neurons'],
+        output_dim         = out_dim,
+        betas              = hyperparameters.get('beta_init', 0.5),
+        initial_centroids  = None          # indlæses fra checkpoint
+    ).to(device)
 
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"[ERROR] XGBoost model file {model_name} not found in {checkpoints_dir}")
+    ckpt = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(ckpt):
+        raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
+    model.load_state_dict(torch.load(ckpt, map_location=device))
+    model.eval()
 
-    xgb_model.model.load_model(model_path)
-    print("[INFO] XGBoost model loaded successfully.")
+    # ---------- inference --------------------------------------------------
+    preds, trues = [], []
+    with torch.no_grad():
+        for xb, yb in test_loader:
+            xb_flat = xb.view(xb.size(0), -1).to(device)   # (B, seq*feat)
+            preds.append(model(xb_flat).cpu().numpy())
+            trues.append(yb.numpy())
 
-    # Generate predictions
-    y_pred = xgb_model.predict(xgb_data["X_test"])
+    y_pred = np.concatenate(preds)
+    y_true = np.concatenate(trues)
 
-    # Compute MSE with inverse transformation
-    inversed_pred = scaler_y.inverse_transform(y_pred)
-    inversed_true = scaler_y.inverse_transform(xgb_data["y_test"])
-    mse = mean_squared_error(inversed_true, inversed_pred)
+    # ---------- MSE i originals­kala --------------------------------------
+    inv_pred = scaler_y.inverse_transform(y_pred)
+    inv_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inv_true, inv_pred)
+    print(f"[RBF] Test MSE = {mse:.4f}")
 
-    print(f"[INFO] Computed MSE: {mse}")
-
-    # Save MSE results
+    # ---------- log --------------------------------------------------------
     logs_dir = os.path.join(project_root, "logs", "test_logs")
     os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"xg_boost_logs_{current_datetime}.csv")
-
-    #FIX THISSSSSSSSSSSSSSS
-    mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
-    })
-    mse_df.to_csv(mse_log_path, index=False)
-    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
-    print(f"[INFO] XGBoost Model MSE: {mse}")
-
-    # Call the separate plot function
-    plot_results(inversed_true, inversed_pred, scaler_y, project_root, model_name="xgboost_latest.json", model_type="XGBoost")
-
-    return mse
-"""
-
-def evaluate_rbf(batch_params, hyperparameters, model_name="rbfn_latest.npz"):
-    print("[INFO] Evaluating RBFN model...")
-
-    # load test data
-    # xgb data holds x_test, y_test in flattend form exactly whar rbfn wants
-    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
-
-    X_test = xgb_data["X_test"]
-    y_test = xgb_data["y_test"]
-    print(f"[INFO] Test data shape: X={X_test.shape}, y={y_test.shape}")
-
-    input_dim  = X_test.shape[1]
-    output_dim = y_test.shape[1]
-    num_hidden_neurons = hyperparameters.get("num_hidden_neurons", 50)
-    learning_rate      = hyperparameters.get("learning_rate", 0.01)
-
-
-    RBFN = RBFN_model(input_dim, num_hidden_neurons, output_dim, learning_rate=learning_rate)
-
-    # loading saved parameters (centroids, betas, weights) from .npz
-
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_path = os.path.join(checkpoints_dir, model_name)
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"[ERROR] RBFN model file {model_name} not found in {checkpoints_dir}")
-
-    
-    print(f"[INFO] Loading RBFN parameters from {model_path}")
-    npz_file = np.load(model_path)
-    RBFN.centroids = npz_file["centroids"]
-    RBFN.betas     = npz_file["betas"]
-    RBFN.weights   = npz_file["weights"]
-    print("[INFO] RBFN parameters loaded successfully.")
-
-    print("[INFO] Generating RBFN predictions...")
-    y_pred = RBFN.predict(X_test)
-
-    # calculate MSE in original scale
-    inversed_true = scaler_y.inverse_transform(y_test)
-    inversed_pred = scaler_y.inverse_transform(y_pred)
-    mse = mean_squared_error(inversed_true, inversed_pred)
-    print(f"[INFO] Computed RBFN MSE on test: {mse}")
-
-    # log  MSE & hyperparams
-    logs_dir = os.path.join(project_root, "logs", "test_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"rbfn_logs_{current_datetime}.csv")
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"rbfpytorch_logs_{ts}.csv")
 
     mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_params.keys()),
+        "Value":  [mse]   + list(hyperparameters.values()) + list(batch_params.values())
     })
+    mse_df.to_csv(log_path, index=False)
+    print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
 
-    mse_df.to_csv(mse_log_path, index=False)
-    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
+    # (valgfrit) plot – genbrug din plot_results_rbf-funktion hvis du ønsker
+    plot_results_rbf(y_true, y_pred, scaler_y, project_root,
+                      model_name=model_name, model_type="RBF-PyTorch")
 
-    plot_results_rbf(y_test, y_pred, scaler_y, project_root, model_name=model_name, model_type="RBFN")
-    
     return mse
 
+def evaluate_rbf_pytorch_static(batch_params,
+                                hyperparameters,
+                                model_name="rbfpytorch_static.pth"):
+    """
+    Evaluerer den *statiske* (non-sekventielle) PyTorch-RBF:
+      • loader data via prepare_flat_dataloaders
+      • ingen gap/total_len – input_dim = antal features (12)
+      • beregner MSE, logger og printer resultat
+    """
+    # ------------- data --------------------------------------------------
+    train_loader, val_loader, xgb_data = prepare_flat_dataloaders(batch_params)
+    X_test = xgb_data["X_val"]     # flat loader har kun train/val – brug val som "test"
+    y_test = xgb_data["y_val"]
 
-def evaluate_rbf_keras(batch_params, hyperparameters, model_name="rbfn_keras_latest.keras"):
-    print("[INFO] Evaluating Keras-RBFN model...")
-
-    # load test data
-    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
-    X_test = xgb_data["X_test"]
-    y_test = xgb_data["y_test"]
-    print(f"[INFO] Test data shape: X={X_test.shape}, y={y_test.shape}")
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(script_dir, ".."))
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_path = os.path.join(checkpoints_dir, model_name)
-
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"[ERROR] Keras-RBFN model file {model_name} not found in {checkpoints_dir}")
-
-    # For at loade custom-lag:
-    # custom_objects = {"RBFLayer": RBFLayer} – ellers kender TF ikke din custom-lag
-    loaded_model = tf.keras.models.load_model(model_path, custom_objects={"RBFLayer": RBFLayer})
-    print("[INFO] Keras-RBFN model loaded successfully.")
-
-    # predict
-    y_pred = loaded_model.predict(X_test)
-
-    # evaluate
-    inversed_true = scaler_y.inverse_transform(y_test)
-    inversed_pred = scaler_y.inverse_transform(y_pred)
-    mse = mean_squared_error(inversed_true, inversed_pred)
-    print(f"[INFO] Computed Keras-RBFN MSE on test: {mse}")
-
-    # log & plot
-    logs_dir = os.path.join(project_root, "logs", "test_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"rbfn_keras_logs_{current_datetime}.csv")
-
-    mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()),
-        "Value": [mse] + list(hyperparameters.values())
-    })
-    mse_df.to_csv(mse_log_path, index=False)
-    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
-
-    # Du kan genbruge dit plot_results_rbf eller lign.:
-    plot_results_rbf(y_test, y_pred, scaler_y, project_root,
-                     model_name=model_name, model_type="Keras-RBFN")
-    
-    return mse
-
-def evaluate_cnn(batch_params, hyperparameters, model_name="cnn_latest.pth"):
-    _, _, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    scaler_y = None
+    if "scaler_y" in xgb_data:     # hvis du gemmer scaler i dict'en
+        scaler_y = xgb_data["scaler_y"]
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Genskab modellen med samme parametre
-    model = CNNModel(in_channels=12, seq_length=10, num_outputs=3).to(device)
-    
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_path = os.path.join(checkpoints_dir, model_name)
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"[ERROR] CNN model file {model_name} not found in {checkpoints_dir}")
-    
-    model.load_state_dict(torch.load(model_path, map_location=device))
+
+    # ------------- model -------------------------------------------------
+    in_dim  = X_test.shape[1]                         # 12
+    out_dim = y_test.shape[1]                         # 3
+    model   = RBFNet(
+        input_dim          = in_dim,
+        num_hidden_neurons = hyperparameters["num_hidden_neurons"],
+        output_dim         = out_dim,
+        betas              = hyperparameters.get("beta_init", 0.5),
+        initial_centroids  = None
+    ).to(device)
+
+    ckpt = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(ckpt):
+        raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
+    model.load_state_dict(torch.load(ckpt, map_location=device))
     model.eval()
-    
-    # Saml forudsigelser over hele test datasættet
-    all_preds, all_targets = [], []
+
+    # ------------- inference --------------------------------------------
     with torch.no_grad():
-        for X_batch, y_batch in test_loader:
-            X_batch = X_batch.to(device)
-            preds = model(X_batch).cpu().numpy()
-            all_preds.append(preds)
-            all_targets.append(y_batch.numpy())
-    
-    y_pred = np.concatenate(all_preds, axis=0)
-    y_true = np.concatenate(all_targets, axis=0)
-    
-    # Omformer hvis nødvendigt (f.eks. med inverse_transform hvis data er skaleret)
-    inversed_pred = scaler_y.inverse_transform(y_pred)
-    inversed_true = scaler_y.inverse_transform(y_true)
-    mse = mean_squared_error(inversed_true, inversed_pred)
-    print(f"[INFO] CNN Test MSE: {mse:.4f}")
+        preds = model(torch.tensor(X_test, dtype=torch.float32).to(device)).cpu().numpy()
+
+    # ------------- MSE ---------------------------------------------------
+    if scaler_y is not None:                      
+        inv_pred = scaler_y.inverse_transform(preds)
+        inv_true = scaler_y.inverse_transform(y_test)
+    else:
+        inv_pred, inv_true = preds, y_test
+
+    mse = mean_squared_error(inv_true, inv_pred)
+    print(f"[RBF-static] Test MSE = {mse:.4f}")
+
+    if scaler_y is not None:                  
+        plot_results_rbf(
+            y_true=y_test,                      
+            y_pred=preds,
+            scaler_y=scaler_y,
+            project_root=project_root,
+            model_name=model_name,
+            model_type="RBF-Static"            
+        )
+    else:                                       
+        plt.figure(figsize=(12, 6))
+        for j in range(inv_true.shape[1]):
+            plt.plot(inv_true[:1600, j], linestyle="dotted",
+                     label=f"GT Mz{j+1}")
+            plt.plot(inv_pred[:1600, j],
+                     label=f"Pred Mz{j+1}")
+        plt.title("RBF-Static · Predictions vs Ground Truth")
+        plt.xlabel("Sample");  plt.ylabel("Torque")
+        plt.legend();  plt.grid()
+        plots_dir = os.path.join(project_root, "plots")
+        os.makedirs(plots_dir, exist_ok=True)
+        fname = f"rbf_static_plot_{datetime.now():%Y-%m-%d_%H-%M-%S}.png"
+        plt.savefig(os.path.join(plots_dir, fname), dpi=300)
+        print(f"[INFO] RBF-static plot saved at plots/{fname}")
+
+
+
+    # ------------- log ---------------------------------------------------
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"rbfpytorch_static_logs_{ts}.csv")
+
+    pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_params.keys()),
+        "Value":  [mse]   + list(hyperparameters.values()) + list(batch_params.values())
+    }).to_csv(log_path, index=False)
+    print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
+
     return mse
 
-def plot_cnn_results(y_true, y_pred, scaler_y):
-    """
-    Plotter CNN forudsigelser vs. den sande værdi.
-    Denne funktion antager, at y_true og y_pred er skalerede,
-    og bruger scaler_y til at konvertere dem tilbage til den oprindelige skala.
-    """
-    # Inverse transform for at genskabe de oprindelige værdier
-    y_true_orig = scaler_y.inverse_transform(y_true)
-    y_pred_orig = scaler_y.inverse_transform(y_pred)
-    
-    # Vælg et passende antal samples til plottet (f.eks. de første 1600 samples)
-    sample_size = min(1600, len(y_true_orig))
-    time_labels = np.linspace(0, 10, num=sample_size)
-    
-    # Udvælg samples
-    true_sample = y_true_orig[:sample_size]
-    pred_sample = y_pred_orig[:sample_size]
-    
-    plt.figure(figsize=(12, 6))
-    # Antag at der er flere output (f.eks. tre torque-værdier)
-    for j in range(true_sample.shape[1]):
-        plt.plot(time_labels, true_sample[:, j], 
-                 label=f"CNN Ground Truth Mz{j+1}", linestyle="dotted")
-        plt.plot(time_labels, pred_sample[:, j], 
-                 label=f"CNN Prediction Mz{j+1}")
-    
-    plt.xlabel("Time (seconds)")
-    plt.ylabel("Torque Values")
-    plt.title("CNN Predictions vs Ground Truth (First 10 Seconds)")
-    plt.legend()
-    plt.grid()
-    
-    # Gem plottet
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    plots_dir = os.path.join(project_root, "plots")
-    os.makedirs(plots_dir, exist_ok=True)
-    plot_filename = f"cnn_plot_{current_datetime}.png"
-    plot_path = os.path.join(plots_dir, plot_filename)
-    plt.savefig(plot_path, dpi=300)
-    plt.show()  # Hvis du ønsker at se plottet interaktivt
-    print(f"[INFO] CNN plot saved at {plot_path}")
 def plot_cnn_results(y_true, y_pred, scaler_y):
     """
     Plotter CNN forudsigelser vs. den sande værdi.
@@ -400,7 +281,6 @@ def plot_cnn_results(y_true, y_pred, scaler_y):
     plt.savefig(plot_path, dpi=300)
     plt.show()  # Vis plottet interaktivt
     print(f"[INFO] CNN plot saved at {plot_path}")
-
 
 # a plot function for rbf features/nature
 def plot_results_rbf(y_true, y_pred, scaler_y, project_root, model_name, model_type):
@@ -477,51 +357,30 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type):
 
 # Example usage
 if __name__ == "__main__":
-    batch_params = {
-        "gap": 10,
-        "total_len": 100,
-        "batch_size": 32
-    }
+    SELECTED_GAP = 10
+   
+    run_params   = batch_parameters | {"gap": SELECTED_GAP}
 
-    hyperparameters = {
-        "dropout": 0.3,
-        "d_model": 64,
-        "nhead": 4,
-        "num_layers": 2,
-        "dim_feedforward": 256,
-        "layer_norm_eps": 1e-5,
-        #"learning_rate": 1e-4,
-        "weight_decay": 1e-4,
-
-        # RBF-hyperparametre
-        "num_hidden_neurons": 100,
-        "learning_rate": 0.01,
-
-    }   
-    
     # Set model names
-    transformer_model_name = "transformer_latest.pth"
-    xgboost_model_name = "xgboost_latest.json"
-    rbfn_model_name = "rbfn_latest.npz"
-    cnn_model_name = "cnn_latest.pth"
-    cnn_model_name = "cnn_latest.pth"
+    cnn_model_name = f"cnn_gap{SELECTED_GAP}.pth"
+    rbf_model_name = f"rbfpytorch_gap{SELECTED_GAP}.pth"
+
 
     #decide which model
-    evaluate_transformer_flag = False
-    evaluate_xgboost_flag = False
-    evaluate_rbfn_flag = False  # Sæt True for at teste RBFN
-    evaluate_rbfn_flag = False  # Sæt True for at teste RBFN
     evaluate_cnn_flag = True
+    evaluate_rbf_pytorch_flag = False
+    evaluate_rbf_pytorch_static_flag = False  
 
-    if evaluate_transformer_flag:
-        evaluate_transformer(batch_params, hyperparameters, transformer_model_name)
-
-    if evaluate_xgboost_flag:
-        evaluate_xgboost(batch_params, hyperparameters, xgboost_model_name)
-
-    if evaluate_rbfn_flag:
-        #evaluate_rbf(batch_params, hyperparameters, rbfn_model_name)
-        evaluate_rbf_keras(batch_params, hyperparameters, "rbfn_keras_latest.keras")
-    
     if evaluate_cnn_flag:
-        evaluate_cnn(batch_params, hyperparameters, "cnn_latest.pth")
+        evaluate_cnn(run_params, hyperparameters, cnn_model_name)
+
+    if evaluate_rbf_pytorch_flag:
+        evaluate_rbf_pytorch(run_params,
+                             hyperparameters,
+                             rbf_model_name)
+    
+    if evaluate_rbf_pytorch_static_flag:
+        evaluate_rbf_pytorch_static(batch_parameters,   # gap er ligegyldig her
+                                    hyperparameters,
+                                    model_name="rbfpytorch_static.pth")
+
