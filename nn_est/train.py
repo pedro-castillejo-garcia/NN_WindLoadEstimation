@@ -27,10 +27,7 @@ sys.path.append(project_root)
 
 #CNN
 from models.CNN import CNNModel
-#Transformer
-from models.Transformer import TransformerModel
-#from models.XGBoost import XGBoostModel
-from models.RadialBasisFunctionModel import RBFN_model
+
 # Define EarlyStopping class
 from models.RBF_PyTorch import initialize_centroids, RBFNet
 
