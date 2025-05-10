@@ -6,7 +6,6 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
 
 from hyperparameters import batch_parameters
-from hyperparameters import batch_parameters
 
 # Automatically find the absolute path of NN_WindLoadEstimation
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -18,7 +17,6 @@ def create_sequences(data, targets, gap, total_len):
             y_seq.append(targets[i + total_len - 1])
         return np.array(X_seq, dtype=np.float32), np.array(y_seq,dtype=np.float32)
 
-def load_data(batch_parameters):
 def load_data(batch_parameters):
     # Define file paths using absolute paths
     file_paths = [
@@ -34,24 +32,16 @@ def load_data(batch_parameters):
     
     total_rows = sum(len(df) for df in datasets)
 
-    
-    total_rows = sum(len(df) for df in datasets)
-
     # Define features and targets
     features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", "beta1", "beta2", "beta3", "omega_r"]
     targets = ["Mz1", "Mz2", "Mz3"]
-
 
     train_data = []
     val_data = []
     test_data = []
 
     for i, dataset in enumerate(datasets):
-
-    for i, dataset in enumerate(datasets):
         n = len(dataset)
-        
-        # Calculate test set indices
         
         # Calculate test set indices
         test_start_idx = int((i % 5) * 0.2 * n)
@@ -60,24 +50,9 @@ def load_data(batch_parameters):
         # Extract test set
         test_split = dataset.iloc[test_start_idx:test_end_idx]
         test_data.append(test_split)
-
-        # Extract test set
-        test_split = dataset.iloc[test_start_idx:test_end_idx]
-        test_data.append(test_split)
         
         # Remaining after removing test
-        # Remaining after removing test
         remaining_data = dataset.drop(dataset.index[test_start_idx:test_end_idx])
-    
-        # Now split the remaining into train (75%) and val (25%)
-        train_end_idx = int(0.75 * len(remaining_data))
-        train_split = remaining_data.iloc[:train_end_idx]
-        val_split = remaining_data.iloc[train_end_idx:]
-
-        train_data.append(train_split)
-        val_data.append(val_split)
-
-    # Combine splits
     
         # Now split the remaining into train (75%) and val (25%)
         train_end_idx = int(0.75 * len(remaining_data))
@@ -92,28 +67,21 @@ def load_data(batch_parameters):
     val_data = pd.concat(val_data, ignore_index=True)
     test_data = pd.concat(test_data, ignore_index=True)
 
-
     # Initialize scalers
     scaler_x = MinMaxScaler()
     scaler_y = MinMaxScaler()
-
 
     # Scale the features and targets
     train_x = scaler_x.fit_transform(train_data[features].values)
     train_y = scaler_y.fit_transform(train_data[targets].values)
 
-
     val_x = scaler_x.transform(val_data[features].values)
     val_y = scaler_y.transform(val_data[targets].values)
-
 
     test_x = scaler_x.transform(test_data[features].values)
     test_y = scaler_y.transform(test_data[targets].values)
 
-
     return train_x, train_y, val_x, val_y, test_x, test_y, scaler_x, scaler_y
-
-def prepare_dataloaders(batch_parameters):
 
 def prepare_dataloaders(batch_parameters):
     
@@ -166,16 +134,17 @@ def prepare_dataloaders(batch_parameters):
     }
 
     return train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y
+
 #For static rbfmodel
 def prepare_flat_dataloaders(batch_parameters):
     """
-    Loader til statiske/non-sekventielle modeller.
-    Returnerer train_loader, val_loader, xgb_data inklusive scaler_y
+    Loading to static/non-seqientielle models.
+    Returns train_loader, val_loader, xgb_data  scaler_y
     """
     (train_x, train_y,
      val_x,   val_y,
-     _t_x, _t_y,        # test-split bruges ikke her
-     _scaler_x, scaler_y) = load_data(batch_parameters)   # <-- tag scaler_y med
+     _t_x, _t_y,        
+     _scaler_x, scaler_y) = load_data(batch_parameters)  
 
     # ---------- PyTorch ----------
     X_tr = torch.tensor(train_x, dtype=torch.float32)
@@ -193,8 +162,6 @@ def prepare_flat_dataloaders(batch_parameters):
         batch_size=batch_parameters["batch_size"],
         shuffle=False
     )
-
-    # ---------- dict til RBF / XGBoost m.m. ----------
     xgb_data = {
         "X_train":  train_x,
         "y_train":  train_y,
@@ -206,8 +173,5 @@ def prepare_flat_dataloaders(batch_parameters):
 
 
 if __name__ == "__main__":
-        
-    train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
 
-        
     train_loader, val_loader, test_loader, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)

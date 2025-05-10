@@ -11,13 +11,11 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import tensorflow as tf
 import keras as keras
 
-
 from datetime import datetime
 import time
 from features import load_data
 from features import prepare_dataloaders
 from features import prepare_flat_dataloaders
-from hyperparameters import batch_parameters, hyperparameters
 from hyperparameters import batch_parameters, hyperparameters
 
 # Get the absolute path of the project's root directory
@@ -27,7 +25,9 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 # Add project root to sys.path
 sys.path.append(project_root)
 
-#CNN
+#Models
+from models.Transformer import TransformerModel
+from models.XGBoost import XGBoostModel
 from models.CNN import CNNModel
 from models.FFNN import FFNNModel
 from models.OneLayerNN import OneLayerNN
@@ -63,6 +63,122 @@ class EarlyStopping:
             self.counter += 1
             if self.counter >= self.patience:
                 self.early_stop = True
+
+def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
+    print("Training Transformer")
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
+    
+    model = TransformerModel(
+        input_dim=train_loader.dataset[0][0].shape[-1],
+        output_dim=train_loader.dataset[0][1].shape[-1],
+        seq_len=batch_params['total_len'] // batch_params['gap'],
+        d_model=hyperparameters['d_model'],
+        nhead=hyperparameters['nhead'],
+        num_layers=hyperparameters['num_layers'],
+        dim_feedforward=hyperparameters['dim_feedforward'],
+        dropout=hyperparameters['dropout'],
+        layer_norm_eps=hyperparameters['layer_norm_eps']
+    )
+    model.to(device)
+    
+    criterion = nn.MSELoss()
+    optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=hyperparameters['weight_decay'])
+    
+    early_stopping = EarlyStopping(patience=5, delta=0.00005)
+    
+    train_losses, val_losses = [], []
+    
+    for epoch in range(hyperparameters['epochs']):
+        model.train()
+        train_loss = 0.0
+        for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            
+            optimizer.zero_grad()
+            predictions = model(X_batch)
+            loss = criterion(predictions, y_batch)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+        
+        train_loss /= len(train_loader)
+        train_losses.append(train_loss)
+        
+        # Evaluate on validation set
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                predictions = model(X_batch)
+                loss = criterion(predictions, y_batch)
+                val_loss += loss.item()
+        
+        val_loss /= len(val_loader)
+        val_losses.append(val_loss)
+        
+        print(f"Epoch {epoch+1}/{hyperparameters['epochs']}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+        
+        early_stopping(val_loss)
+        if early_stopping.early_stop:
+            print("Early stopping triggered. Stopping training.")
+            break
+    
+    # Create directories if they don't exist
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    logs_dir = os.path.join(project_root, "logs", "training_logs")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    model_path = os.path.join(checkpoints_dir, f"transformer_latest_sequenced_{current_datetime}.pth") 
+    torch.save(model.state_dict(), model_path)
+    
+    # Save training logs to CSV inside the training_logs folder
+    log_path = os.path.join(logs_dir, f"transformer_training_logs_{current_datetime}.csv")
+    logs_df = pd.DataFrame({"Epoch": range(1, len(train_losses) + 1), "Train Loss": train_losses, "Val Loss": val_losses})
+    logs_df.to_csv(log_path, index=False)
+    print(f"Training logs saved as {log_path}")
+
+def train_xgboost(xgb_data, hyperparameters):
+    print("Training XGBoost")
+    
+    # Initialize XGBoost model
+    xgb_model = XGBoostModel(
+        n_estimators=hyperparameters.get("n_estimators", 200),
+        max_depth=hyperparameters.get("max_depth", 6),
+        learning_rate=hyperparameters.get("learning_rate", 0.05)
+    )
+
+    # Train model
+    xgb_model.train(xgb_data["X_train"], xgb_data["y_train"])
+
+    # Validate model
+    predictions = xgb_model.predict(xgb_data["X_val"])
+
+    # Compute metrics
+    rmse = np.sqrt(mean_squared_error(xgb_data["y_val"], predictions))
+    mae = mean_absolute_error(xgb_data["y_val"], predictions)
+    r2 = r2_score(xgb_data["y_val"], predictions)
+
+    print(f"XGBoost Results: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
+
+     # Save model in checkpoints directory
+    checkpoints_dir = os.path.join(project_root, "checkpoints")
+    os.makedirs(checkpoints_dir, exist_ok=True)
+
+    xgboost_model_path = os.path.join(checkpoints_dir, f"xgboost_sequenced_latest_{current_datetime}_.json")
+    xgb_model.model.save_model(xgboost_model_path)
+    print(f"[INFO] XGBoost model saved at {xgboost_model_path}")
+    
+    return xgb_model                
                 
 def train_cnn(train_loader, val_loader, hyperparams, model_name, gap):
     """Træn CNN og gem den som <model_name> (gap bruges kun til printk)."""
