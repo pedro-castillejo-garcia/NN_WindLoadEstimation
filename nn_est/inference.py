@@ -18,7 +18,6 @@ sys.path.append(project_root)
 from models.Transformer import TransformerModel
 from models.FFNN import FFNNModel
 from models.OneLayerNN import OneLayerNN
-from models.XGBoost import XGBoostModel
 
 # Features and targets
 features = ["Mx1", "Mx2", "Mx3", "My1", "My2", "My3", "Theta", "Vwx", "beta1", "beta2", "beta3", "omega_r"]
@@ -193,43 +192,6 @@ def infer_one_layer_nn(X_seq, y_seq, t_seq, model_name, scaler_y, device_type):
 
     save_results(results, "one_layer_nn")
 
-def infer_xgboost(X_seq, y_seq, t_seq, model_name, scaler_y, device_type):
-    print("[INFO] Running XGBoost Inference...")
-
-    model = XGBoostModel(
-        n_estimators=hyperparameters["n_estimators"],
-        max_depth=hyperparameters["max_depth"],
-        learning_rate=hyperparameters["learning_rate"]
-    )
-
-    model_path = os.path.join(project_root, "checkpoints", model_name)
-    model.load_model(model_path)
-
-    X_flat = X_seq.reshape(X_seq.shape[0], -1)
-
-    results = []
-    for i in range(X_flat.shape[0]):
-        single_X = X_flat[i:i+1]
-        start_time = time.time()
-        pred = model.predict(single_X)
-        end_time = time.time()
-
-        inference_duration = (end_time - start_time) * 1000
-        pred_inv = scaler_y.inverse_transform(pred.reshape(1, -1))[0]
-        true_inv = scaler_y.inverse_transform(y_seq[i].reshape(1, -1))[0]
-
-        results.append({
-            "t": t_seq[i],
-            "Actual_Mz1": true_inv[0],
-            "Predicted_Mz1": pred_inv[0],
-            "Actual_Mz2": true_inv[1],
-            "Predicted_Mz2": pred_inv[1],
-            "Actual_Mz3": true_inv[2],
-            "Predicted_Mz3": pred_inv[2],
-            "Inference_Time_ms": inference_duration
-        })
-
-    save_results(results, "xgboost")
 
 if __name__ == "__main__":
     device_type = "gpu"  # Options: "cuda" or "cpu"
@@ -243,7 +205,6 @@ if __name__ == "__main__":
     transformer_model_name = "transformer_latest.pth"
     ffnn_model_name = "ffnn_sequenced_2025-04-28_19-57-03_latest.pth"
     one_layer_nn_model_name = "one_layer_nn_latest.pth"
-    xgboost_model_name = "xgboost_latest.json"
 
     # Load and prepare data
     X_scaled, y_scaled, t_values, scaler_x, scaler_y = load_inference_data()
@@ -260,5 +221,3 @@ if __name__ == "__main__":
     if infer_one_layer_nn_flag:
         infer_one_layer_nn(X_seq, y_seq, t_seq, one_layer_nn_model_name, scaler_y, device_type)
 
-    if infer_xgboost_flag:
-        infer_xgboost(X_seq, y_seq, t_seq, xgboost_model_name, scaler_y, device_type)

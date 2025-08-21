@@ -182,8 +182,14 @@ def evaluate_ffnn(batch_parameters, hyperparameters, model_name):
 
     _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
     
     ffnn_model = FFNNModel(
         input_dim=test_loader.dataset[0][0].shape[-1],
@@ -517,7 +523,6 @@ def evaluate_lstm(batch_parameters, hyperparameters, model_name):
     return mse
 
 
-
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")
@@ -561,7 +566,7 @@ if __name__ == "__main__":
     # Set model names
     transformer_model_name = "transformer_latest.pth"
     xgboost_model_name = "xgboost_latest.json"
-    ffnn_model_name = "ffnn_latest.pth"
+    ffnn_model_name = "ffnn_05.pth"
     one_layer_nn_model_name = "one_layer_nn_latest.pth"
     tcn_model_name = "tcn_latest.pth"
     cnn_lstm_model_name = "cnn-_lstm_latest.pth"
@@ -571,8 +576,8 @@ if __name__ == "__main__":
     
     evaluate_transformer_flag = False
     evaluate_xgboost_flag = False
-    evaluate_ffnn_flag = False
-    evaluate_one_layer_nn_flag = True
+    evaluate_ffnn_flag = True
+    evaluate_one_layer_nn_flag = False
     evaluate_tcn_flag = False
     evaluate_cnnlstm_flag = False
     evaluate_lstm_flag = False

@@ -22,7 +22,6 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
-from models.XGBoost import XGBoostModel
 from models.FFNN import FFNNModel
 from models.OneLayerNN import OneLayerNN
 from models.TCN import TCNModel
@@ -134,46 +133,19 @@ def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")
 
-# XGBoost Training Function
-def train_xgboost(xgb_data, hyperparameters):
-    print("Training XGBoost")
-    
-    # Initialize XGBoost model
-    xgb_model = XGBoostModel(
-        n_estimators=hyperparameters.get("n_estimators", 200),
-        max_depth=hyperparameters.get("max_depth", 6),
-        learning_rate=hyperparameters.get("learning_rate", 0.05)
-    )
-
-    # Train model
-    xgb_model.train(xgb_data["X_train"], xgb_data["y_train"])
-
-    # Validate model
-    predictions = xgb_model.predict(xgb_data["X_val"])
-
-    # Compute metrics
-    rmse = np.sqrt(mean_squared_error(xgb_data["y_val"], predictions))
-    mae = mean_absolute_error(xgb_data["y_val"], predictions)
-    r2 = r2_score(xgb_data["y_val"], predictions)
-
-    print(f"XGBoost Results: RMSE={rmse:.4f}, MAE={mae:.4f}, R²={r2:.4f}")
-
-     # Save model in checkpoints directory
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    os.makedirs(checkpoints_dir, exist_ok=True)
-
-    xgboost_model_path = os.path.join(checkpoints_dir, f"xgboost_sequenced_latest_{current_datetime}_.json")
-    xgb_model.model.save_model(xgboost_model_path)
-    print(f"[INFO] XGBoost model saved at {xgboost_model_path}")
-    
-    return xgb_model
-
 #FFNN Training Function
 def train_ffnn(batch_params, hyperparameters):
     print("Training FFNN")
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
+    
     train_loader, val_loader, _, _, _, _ = prepare_dataloaders(batch_params)
     
     model = FFNNModel(
@@ -187,6 +159,8 @@ def train_ffnn(batch_params, hyperparameters):
     criterion = nn.MSELoss()
     optimizer = optim.AdamW(model.parameters(), lr=hyperparameters['learning_rate'], weight_decay=1e-4)
     
+    early_stopping = EarlyStopping(patience=5, delta=0.00005)
+
     train_losses, val_losses = [], []
     
     for epoch in range(hyperparameters['epochs']):
@@ -219,6 +193,11 @@ def train_ffnn(batch_params, hyperparameters):
         
         print(f"[{epoch+1}/{hyperparameters['epochs']}] Train Loss: {train_loss:.6f} | Val Loss: {val_loss:.6f}")
     
+        early_stopping(val_loss)
+        if early_stopping.early_stop:
+            print("Early stopping triggered. Stopping training.")
+            break
+        
     # Create directories if they don't exist
     checkpoints_dir = os.path.join(project_root, "checkpoints")
     logs_dir = os.path.join(project_root, "logs", "training_logs")
@@ -228,7 +207,7 @@ def train_ffnn(batch_params, hyperparameters):
     # Save the model with current date and time
     current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
-    model_path = os.path.join(checkpoints_dir, f"ffnn_sequenced_{current_datetime}_latest.pth") 
+    model_path = os.path.join(checkpoints_dir, f"ffnn_latest_sequenced_{current_datetime}.pth") 
     torch.save(model.state_dict(), model_path)
     
     # Save training logs to CSV inside the training_logs folder
@@ -333,8 +312,6 @@ def train_one_layer_nn(batch_params, hyperparameters):
     logs_df.to_csv(log_path, index=False)
     print(f"Training logs saved as {log_path}")    
 
-
-
 # TCN Training Function
 def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     print("Training TCN")
@@ -438,7 +415,6 @@ def train_tcn(train_loader, val_loader, batch_params, hyperparameters):
     train_time_df.to_csv(train_time_path, index=False)
     print(f"Training time saved at {train_time_path}")
 
-
 #Training CNN-LSTM
 def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
     print("Training CNN-LSTM")
@@ -533,7 +509,6 @@ def train_cnnlstm(train_loader, val_loader, batch_params, hyperparameters):
     train_time_path = os.path.join(logs_dir, f"cnnlstm_training_time_{current_datetime}.csv")
     train_time_df.to_csv(train_time_path, index=False)
     print(f"Training time saved at {train_time_path}")
-
 
 #Training LSTM
 def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
@@ -639,20 +614,16 @@ if __name__ == "__main__":
     
     train_transformer_flag = False  # Set to True to train Transformer
     train_xgboost_flag = False  # Set to True to train XGBoost
-    train_ffnn_flag = False  # Set to True to train FFNN
+    train_ffnn_flag = True  # Set to True to train FFNN
     train_one_layer_nn_flag = False  # Set to True to train One-Layer NN
-    train_tcn_flag = True
-    train_cnnlstm_flag = True
-    train_lstm_flag = True
+    train_tcn_flag = False  # Set to True to train TCN
+    train_cnnlstm_flag = False  # Set to True to train CNN-LSTM
+    train_lstm_flag = False  # Set to True to train LSTM
 
     # Train Transformer if flag is set
     if train_transformer_flag:
         train_transformer(train_loader, val_loader, batch_parameters, hyperparameters)
 
-    # Train XGBoost if flag is set
-    if train_xgboost_flag:
-        train_xgboost(xgb_data, hyperparameters)
-        
     # Train FFNN if flag is set
     if train_ffnn_flag:
         train_ffnn(batch_parameters, hyperparameters)    

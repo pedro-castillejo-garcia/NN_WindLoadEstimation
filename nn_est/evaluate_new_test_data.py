@@ -640,7 +640,7 @@ if __name__ == "__main__":
     # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE    
     evaluate_ffnn_flag = False
     evaluate_transformer_flag = False
-    evaluate_tcn_flag = True
+    evaluate_tcn_flag = False
     evaluate_cnnlstm_flag = False
     evaluate_lstm_flag = False
     

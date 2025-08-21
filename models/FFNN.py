@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 
-
 class FFNNModel(nn.Module):
     def __init__(self, input_dim, output_dim, seq_len=20, dropout=0.3):
         super(FFNNModel, self).__init__()
