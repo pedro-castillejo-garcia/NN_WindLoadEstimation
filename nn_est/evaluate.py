@@ -26,7 +26,8 @@ from models.OneLayerNN import OneLayerNN
 from models.TCN import TCNModel
 from models.CNNLSTM import CNNLSTMModel
 from models.LSTM import LSTMModel
-
+from models.CNN import CNNModel
+from models.RBF import RBFNet
 
 def evaluate_transformer(batch_parameters, hyperparameters, model_name):
     print("[INFO] Evaluating Transformer model...")
@@ -522,6 +523,125 @@ def evaluate_lstm(batch_parameters, hyperparameters, model_name):
 
     return mse
 
+def evaluate_cnn(batch_params,
+                 hyperparameters,
+                 model_name):
+    # 1) data
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 2) model-genopbygning
+    in_channels = test_loader.dataset.tensors[0].shape[-1]
+    seq_len     = batch_params["total_len"] // batch_params["gap"]
+    out_dim     = test_loader.dataset.tensors[1].shape[-1]
+
+    model = CNNModel(in_channels=in_channels,
+                     seq_length=seq_len,
+                     num_outputs=out_dim).to(device)
+
+    # 3) vægte
+    ckpt = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(ckpt):
+        raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
+    model.load_state_dict(torch.load(ckpt, map_location=device))
+    model.eval()
+
+    # 4) inference
+    preds, trues = [], []
+    with torch.no_grad():
+        for xb, yb in test_loader:
+            preds.append(model(xb.to(device)).cpu().numpy())
+            trues.append(yb.numpy())
+
+    y_pred = np.concatenate(preds)
+    y_true = np.concatenate(trues)
+
+    # 5) MSE i original skala
+    inv_pred = scaler_y.inverse_transform(y_pred)
+    inv_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inv_true, inv_pred)
+    print(f"[CNN] Test MSE = {mse:.4f}")
+
+    # 6) gem log som dine andre modeller
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"cnn_logs_{ts}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_params.keys()),
+        "Value":  [mse]   + list(hyperparameters.values()) + list(batch_params.values())
+    })
+    mse_df.to_csv(log_path, index=False)
+    print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
+
+    # (valgfrit) plot
+    plot_cnn_results(y_true, y_pred, scaler_y)
+    return mse
+
+def evaluate_rbf_pytorch(batch_params,
+                         hyperparameters,
+                         model_name):
+  
+    # ---------- data -------------------------------------------------------
+    _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    in_channels = test_loader.dataset.tensors[0].shape[-1]                # 12
+    seq_len     = batch_params['total_len'] // batch_params['gap']        # fx 100
+    flat_dim    = in_channels * seq_len                                   # 1200
+    out_dim     = test_loader.dataset.tensors[1].shape[-1]                # 3
+
+    # ---------- model ------------------------------------------------------
+    model = RBFNet(
+        input_dim          = flat_dim,
+        num_hidden_neurons = hyperparameters['num_hidden_neurons'],
+        output_dim         = out_dim,
+        betas              = hyperparameters.get('beta_init', 0.5),
+        initial_centroids  = None          # indlæses fra checkpoint
+    ).to(device)
+
+    ckpt = os.path.join(project_root, "checkpoints", model_name)
+    if not os.path.exists(ckpt):
+        raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
+    model.load_state_dict(torch.load(ckpt, map_location=device))
+    model.eval()
+
+    # ---------- inference --------------------------------------------------
+    preds, trues = [], []
+    with torch.no_grad():
+        for xb, yb in test_loader:
+            xb_flat = xb.view(xb.size(0), -1).to(device)   # (B, seq*feat)
+            preds.append(model(xb_flat).cpu().numpy())
+            trues.append(yb.numpy())
+
+    y_pred = np.concatenate(preds)
+    y_true = np.concatenate(trues)
+
+    # ---------- MSE i originals­kala --------------------------------------
+    inv_pred = scaler_y.inverse_transform(y_pred)
+    inv_true = scaler_y.inverse_transform(y_true)
+    mse = mean_squared_error(inv_true, inv_pred)
+    print(f"[RBF] Test MSE = {mse:.4f}")
+
+    # ---------- log --------------------------------------------------------
+    logs_dir = os.path.join(project_root, "logs", "test_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(logs_dir, f"rbfpytorch_logs_{ts}.csv")
+
+    mse_df = pd.DataFrame({
+        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_params.keys()),
+        "Value":  [mse]   + list(hyperparameters.values()) + list(batch_params.values())
+    })
+    mse_df.to_csv(log_path, index=False)
+    print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
+
+    # (valgfrit) plot – genbrug din plot_results_rbf-funktion hvis du ønsker
+    plot_results_rbf(y_true, y_pred, scaler_y, project_root,
+                      model_name=model_name, model_type="RBF-PyTorch")
+
+    return mse
 
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
@@ -561,6 +681,7 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     print(f"[INFO] {model_type} plot saved at {plot_path}")
 
 
+
 if __name__ == "__main__":
         
     # Set model names
@@ -571,7 +692,8 @@ if __name__ == "__main__":
     tcn_model_name = "tcn_latest.pth"
     cnn_lstm_model_name = "cnn-_lstm_latest.pth"
     lstm_model_name = "lstm_latest.pth"
-
+    cnn_model_name = "cnn_lastest.pth"
+    rbf_model_name = "rbf_lastest.pth"
     # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE
     
     evaluate_transformer_flag = False
@@ -581,6 +703,8 @@ if __name__ == "__main__":
     evaluate_tcn_flag = False
     evaluate_cnnlstm_flag = False
     evaluate_lstm_flag = False
+    evaluate_cnn_flag = False
+    evaluate_rbf_flag = False
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_parameters, hyperparameters, transformer_model_name)
@@ -602,4 +726,10 @@ if __name__ == "__main__":
 
     if evaluate_lstm_flag:
         evaluate_lstm(batch_parameters, hyperparameters, lstm_model_name)
-        
+    if evaluate_cnn_flag:
+        evaluate_cnn(batch_parameters, hyperparameters, cnn_model_name)
+
+    if evaluate_rbf_flag:
+        evaluate_rbf_pytorch(batch_parameters,
+                             hyperparameters,
+                             rbf_model_name)

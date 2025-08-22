@@ -27,7 +27,8 @@ from models.OneLayerNN import OneLayerNN
 from models.TCN import TCNModel
 from models.CNNLSTM import CNNLSTMModel
 from models.LSTM import LSTMModel
-
+from models.RBF import initialize_centroids, RBFNet
+from models.CNN import CNNModel
 
 # Save the model with current date and time
 current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -605,6 +606,180 @@ def train_lstm(train_loader, val_loader, batch_params, hyperparameters):
     train_time_df.to_csv(train_time_path, index=False)
     print(f"Training time saved at {train_time_path}")
 
+#Training RBF
+def train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters,
+                     model_name):
+    print(f"[INFO] Training RBFNet (PyTorch) ")
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    
+    print(f"[INFO] Using device: {device}")
+
+    # 0) Tjek for NaN/inf i xgb_data før noget andet
+    import numpy as _np
+    assert not _np.isnan(xgb_data["X_train"]).any(), "X_train indeholder NaN!"
+    assert not _np.isnan(xgb_data["y_train"]).any(), "y_train indeholder NaN!"
+    assert not _np.isinf(xgb_data["X_train"]).any(), "X_train indeholder inf!"
+    assert not _np.isinf(xgb_data["y_train"]).any(), "y_train indeholder inf!"
+
+    # 1) Model + centroids
+    X_train_all = torch.from_numpy(xgb_data["X_train"].astype(np.float32))
+    centroids   = initialize_centroids(
+        X_train_all,
+        hyperparameters["num_hidden_neurons"]
+    )
+    model = RBFNet(
+        input_dim = X_train_all.shape[1],
+        num_hidden_neurons = hyperparameters["num_hidden_neurons"],
+        output_dim = xgb_data["y_train"].shape[1],
+        betas = hyperparameters.get("beta_init", 0.5),
+        initial_centroids = centroids
+    ).to(device)
+
+    # 2) Criterion og OPT med lavere LR
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=hyperparameters.get("learning_rate", 0.1) * 0.01  # fx 100× lavere
+    )
+
+    # 3) Anomaly detection
+    torch.autograd.set_detect_anomaly(True)
+
+    es        = EarlyStopping(patience=5, delta=5e-5)
+    train_losses, val_losses = [], []
+
+    for epoch in range(1, hyperparameters["epochs"] + 1):
+        # ---- train ----
+        model.train()
+        tot_train = 0.0
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
+            optimizer.zero_grad()
+            out = model(xb.reshape(xb.size(0), -1))
+            loss = criterion(out, yb)
+            loss.backward()
+
+            # 4) Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+            tot_train += loss.item() * xb.size(0)
+
+        train_loss = tot_train / len(train_loader.dataset)
+        train_losses.append(train_loss)
+
+        # ---- val ----
+        model.eval()
+        tot_val = 0.0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                out = model(xb.reshape(xb.size(0), -1))
+                tot_val += criterion(out, yb).item() * xb.size(0)
+        val_loss = tot_val / len(val_loader.dataset)
+        val_losses.append(val_loss)
+
+        print(f"Epoch {epoch:2d}  train={train_loss:.4e}  val={val_loss:.4e}")
+        es(val_loss)
+        if es.early_stop:
+            print(f"[EarlyStopping] Stoppede efter {epoch} epoker "
+                  f"(bedste val.loss = {es.best_loss:.4e})")
+            break
+
+    # ----- Gem vægte + logs som før -----
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    ckpt = os.path.join(root, "checkpoints", model_name)
+    torch.save(model.state_dict(), ckpt)
+    print(f"[INFO] Gemte vægte → {ckpt}")
+
+    logs_dir = os.path.join(root, "logs", "training_logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    pd.DataFrame({
+        "epoch":      range(1, len(train_losses)+1),
+        "train_loss": train_losses,
+        "val_loss":   val_losses
+    }).to_csv(os.path.join(logs_dir,
+               f"{model_name.replace('.pth','')}_logs_{now}.csv"),
+              index=False)
+
+    return model
+
+#Training CNN
+def train_cnn(train_loader, val_loader, hyperparams, model_name):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    in_channels = train_loader.dataset.tensors[0].shape[-1]
+    seq_len     = train_loader.dataset.tensors[0].shape[1]
+    out_dim     = train_loader.dataset.tensors[1].shape[-1]
+
+    model = CNNModel(in_channels=in_channels,
+                     seq_length=seq_len,
+                     num_outputs=out_dim).to(device)
+
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(),
+                           lr=hyperparams["learning_rate"])
+    epochs = hyperparams["epochs"]
+    es = EarlyStopping(patience=5, delta=5e-5)
+
+    train_losses, val_losses = [], []
+    for epoch in range(epochs):
+        # -------- train ---------------------------------------
+        model.train(); epoch_train = 0.0
+        for xb, yb in train_loader:
+            xb, yb = xb.to(device), yb.to(device)
+            optimizer.zero_grad()
+            loss = criterion(model(xb), yb)
+            loss.backward(); optimizer.step()
+            epoch_train += loss.item()
+        train_losses.append(epoch_train / len(train_loader))
+
+        # -------- val -----------------------------------------
+        model.eval(); epoch_val = 0.0
+        with torch.no_grad():
+            for xb, yb in val_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                epoch_val += criterion(model(xb), yb).item()
+        val_loss = epoch_val / len(val_loader)
+        val_losses.append(val_loss)
+
+        print(f"Epoch {epoch+1}/{epochs} "
+              f"train={train_losses[-1]:.4f}  val={val_losses[-1]:.4f}")
+        
+        es(val_loss)
+        if es.early_stop:
+                print(f"[CNN] Early stopping efter {epoch+1} epochs "
+                        f"(bedste val.loss = {es.best_loss:.4f})")
+                break
+    # -------- gem -------------------------------------------
+    repo_root  = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    checkpoints = os.path.join(repo_root, "checkpoints")
+    logs_dir    = os.path.join(repo_root, "logs", "training_logs")
+    os.makedirs(checkpoints, exist_ok=True)
+    os.makedirs(logs_dir,    exist_ok=True)
+
+    torch.save(model.state_dict(), os.path.join(checkpoints, model_name))
+    print(f"[INFO] CNN gemt → checkpoints/{model_name}")
+
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    pd.DataFrame({"epoch": range(1, len(train_losses)+1),
+                  "train_loss": train_losses,
+                  "val_loss": val_losses}) \
+      .to_csv(os.path.join(
+              logs_dir,
+              f"{model_name.replace('.pth','')}_logs_{ts}.csv"),
+              index=False)
+    return model
+
+
 if __name__ == "__main__":              
     
     # Load preprocessed data
@@ -619,7 +794,8 @@ if __name__ == "__main__":
     train_tcn_flag = False  # Set to True to train TCN
     train_cnnlstm_flag = False  # Set to True to train CNN-LSTM
     train_lstm_flag = False  # Set to True to train LSTM
-
+    train_rbfpytorch_flag = False
+    train_cnn_flag = False
     # Train Transformer if flag is set
     if train_transformer_flag:
         train_transformer(train_loader, val_loader, batch_parameters, hyperparameters)
@@ -643,4 +819,10 @@ if __name__ == "__main__":
     # Train LSTM if flag is set
     if train_lstm_flag:
         train_lstm(train_loader, val_loader, batch_parameters, hyperparameters)  
-        
+    
+    # Train RBF if flag is set
+    if train_rbfpytorch_flag:
+        train_rbfpytorch(train_loader, val_loader, xgb_data, hyperparameters)
+    
+    if train_cnn_flag: 
+        train_cnn(train_loader, val_loader, hyperparameters, batch_parameters)
