@@ -4,3 +4,10 @@ isort
 pip
 python-dotenv
 -e .
+numpy
+pandas
+scikit-learn
+torch
+matplotlib
+seaborn
+tqdm
