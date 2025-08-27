@@ -192,7 +192,6 @@ def infer_one_layer_nn(X_seq, y_seq, t_seq, model_name, scaler_y, device_type):
 
     save_results(results, "one_layer_nn")
 
-
 if __name__ == "__main__":
     device_type = "gpu"  # Options: "cuda" or "cpu"
 

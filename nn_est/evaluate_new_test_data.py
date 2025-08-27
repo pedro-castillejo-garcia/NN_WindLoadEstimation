@@ -124,7 +124,6 @@ def evaluate_ffnn_new_test_data(batch_parameters, hyperparameters, model_name, m
     # Ensure plot_results function is correctly defined
     plot_results(y_true, y_pred, scaler_y, model_name, "FFNN", mse)
 
-
 def evaluate_transformer_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
     print("[INFO] Evaluating Transformer model on new test data...")
 
@@ -240,8 +239,6 @@ def evaluate_transformer_new_test_data(batch_parameters, hyperparameters, model_
         model_type="Transformer",
         mse=mse
     )
-
-
 
 def evaluate_tcn_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
     print("[INFO] Evaluating TCN model on new test data...")
@@ -359,7 +356,6 @@ def evaluate_tcn_new_test_data(batch_parameters, hyperparameters, model_name, ma
         model_type="TCN",
         mse=mse
     )
-
 
 def evaluate_cnnlstm_new_test_data(batch_parameters, hyperparameters, model_name, max_files=None):
     print("[INFO] Evaluating CNN-LSTM model on new test data...")
@@ -589,8 +585,6 @@ def evaluate_lstm_new_test_data(batch_parameters, hyperparameters, model_name, m
         mse=mse
     )
 
-
-    
 def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     """Function to generate and save the plot of predictions vs ground truth with correct torque values."""
     print("[INFO] Generating plot for predictions vs ground truth...")

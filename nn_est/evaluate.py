@@ -20,7 +20,6 @@ project_root = os.path.abspath(os.path.join(script_dir, ".."))  # Move up one le
 sys.path.append(project_root)
 
 from models.Transformer import TransformerModel
-from models.XGBoost import XGBoostModel
 from models.FFNN import FFNNModel
 from models.OneLayerNN import OneLayerNN
 from models.TCN import TCNModel
@@ -120,61 +119,6 @@ def evaluate_transformer(batch_parameters, hyperparameters, model_name):
 
     # Call the separate plot function
     plot_results(y_true, y_pred, scaler_y, model_name, "Transformer", mse)
-
-    return mse
-
-def evaluate_xgboost(batch_parameters, hyperparameters, model_name):
-    print("[INFO] Evaluating XGBoost model...")
-
-    # Load test data
-    _, _, _, xgb_data, scaler_x, scaler_y = prepare_dataloaders(batch_parameters)
-
-    # Load trained XGBoost model
-    xgb_model = XGBoostModel(
-        n_estimators=hyperparameters["n_estimators"],
-        max_depth=hyperparameters["max_depth"],
-        learning_rate=hyperparameters["learning_rate"],
-        objective="reg:squarederror"
-    )
-
-    # Load model weights if saved
-    checkpoints_dir = os.path.join(project_root, "checkpoints")
-    model_path = os.path.join(checkpoints_dir, model_name)
-
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"[ERROR] XGBoost model file {model_name} not found in {checkpoints_dir}")
-
-    xgb_model.load_model(model_path)
-
-    # Generate predictions
-    y_pred = xgb_model.predict(xgb_data["X_test"])
-
-    # Ensure correct shape
-    y_pred = y_pred.reshape(-1, 3)
-
-    # Compute MSE
-    inversed_pred = scaler_y.inverse_transform(y_pred)
-    inversed_true = scaler_y.inverse_transform(xgb_data["y_test"])
-    
-    mse = mean_squared_error(inversed_true, inversed_pred)
-
-    print(f"[INFO] XGBoost Model MSE: {mse}")
-
-    # Save MSE results
-    logs_dir = os.path.join(project_root, "logs", "test_logs")
-    os.makedirs(logs_dir, exist_ok=True)
-    current_datetime = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    mse_log_path = os.path.join(logs_dir, f"xg_boost_test_logs_{current_datetime}.csv")
-
-    mse_df = pd.DataFrame({
-        "Metric": ["MSE"] + list(hyperparameters.keys()) + list(batch_parameters.keys()),
-        "Value": [mse] + list(hyperparameters.values()) + list(batch_parameters.values())
-    })
-    mse_df.to_csv(mse_log_path, index=False)
-    print(f"[INFO] Test MSE and hyperparameters logged at {mse_log_path}")
-
-    # Plot results
-    plot_results(xgb_data["y_test"], y_pred, scaler_y, model_name, "XGBoost", mse)
 
     return mse
 
@@ -306,7 +250,6 @@ def evaluate_one_layer_nn(batch_parameters, model_name):
     # Ensure plot_results function is correctly defined
     plot_results(y_true, y_pred, scaler_y, model_name, "One_Layer_NN", mse)
 
-
 def evaluate_tcn(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating TCN model...")
 
@@ -381,7 +324,6 @@ def evaluate_tcn(batch_params, hyperparameters, model_name):
 
     return mse
 
-
 def evaluate_cnnlstm(batch_params, hyperparameters, model_name):
     print("[INFO] Evaluating CNN-LSTM model...")
 
@@ -448,7 +390,6 @@ def evaluate_cnnlstm(batch_params, hyperparameters, model_name):
     
     # Ensure plot_results function is correctly defined
     plot_results(y_true, y_pred, scaler_y, model_name, "CNN-LSTM", mse)
-
 
 def evaluate_lstm(batch_parameters, hyperparameters, model_name):
     print("[INFO] Evaluating LSTM model...")
@@ -523,9 +464,7 @@ def evaluate_lstm(batch_parameters, hyperparameters, model_name):
 
     return mse
 
-def evaluate_cnn(batch_params,
-                 hyperparameters,
-                 model_name):
+def evaluate_cnn(batch_params, hyperparameters, model_name):
     # 1) data
     _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -576,13 +515,11 @@ def evaluate_cnn(batch_params,
     print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
 
     # (valgfrit) plot
-    plot_cnn_results(y_true, y_pred, scaler_y)
+    plot_results(y_true, y_pred, scaler_y, model_name, "CNN", mse)
     return mse
 
-def evaluate_rbf_pytorch(batch_params,
-                         hyperparameters,
-                         model_name):
-  
+def evaluate_rbf_pytorch(batch_params, hyperparameters, model_name):
+
     # ---------- data -------------------------------------------------------
     _, _, test_loader, _, scaler_x, scaler_y = prepare_dataloaders(batch_params)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -638,8 +575,7 @@ def evaluate_rbf_pytorch(batch_params,
     print(f"[INFO] Test MSE og hyperparametre gemt → {log_path}")
 
     # (valgfrit) plot – genbrug din plot_results_rbf-funktion hvis du ønsker
-    plot_results_rbf(y_true, y_pred, scaler_y, project_root,
-                      model_name=model_name, model_type="RBF-PyTorch")
+    plot_results(y_true, y_pred, scaler_y, model_name, "RBF", mse)
 
     return mse
 
@@ -680,14 +616,11 @@ def plot_results(y_true, y_pred, scaler_y, model_name, model_type, mse):
     plt.savefig(plot_path, dpi=300)
     print(f"[INFO] {model_type} plot saved at {plot_path}")
 
-
-
 if __name__ == "__main__":
         
     # Set model names
     transformer_model_name = "transformer_latest.pth"
-    xgboost_model_name = "xgboost_latest.json"
-    ffnn_model_name = "ffnn_05.pth"
+    ffnn_model_name = "ffnn_latest.pth"
     one_layer_nn_model_name = "one_layer_nn_latest.pth"
     tcn_model_name = "tcn_latest.pth"
     cnn_lstm_model_name = "cnn-_lstm_latest.pth"
@@ -697,7 +630,6 @@ if __name__ == "__main__":
     # DO THIS FOR EVERY MODEL YOU WANT TO EVALUATE
     
     evaluate_transformer_flag = False
-    evaluate_xgboost_flag = False
     evaluate_ffnn_flag = True
     evaluate_one_layer_nn_flag = False
     evaluate_tcn_flag = False
@@ -708,9 +640,6 @@ if __name__ == "__main__":
 
     if evaluate_transformer_flag:
         evaluate_transformer(batch_parameters, hyperparameters, transformer_model_name)
-
-    if evaluate_xgboost_flag:
-        evaluate_xgboost(batch_parameters, hyperparameters, xgboost_model_name)
         
     if evaluate_ffnn_flag:
         evaluate_ffnn(batch_parameters, hyperparameters, ffnn_model_name)
@@ -730,6 +659,4 @@ if __name__ == "__main__":
         evaluate_cnn(batch_parameters, hyperparameters, cnn_model_name)
 
     if evaluate_rbf_flag:
-        evaluate_rbf_pytorch(batch_parameters,
-                             hyperparameters,
-                             rbf_model_name)
+        evaluate_rbf_pytorch(batch_parameters, hyperparameters, rbf_model_name)

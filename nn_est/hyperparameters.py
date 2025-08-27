@@ -5,6 +5,7 @@ batch_parameters = {
 }
 
 hyperparameters = {
+    
     "epochs": 100,              
     "dropout": 0.3,            
     "d_model": 64,              #This is for Transformer

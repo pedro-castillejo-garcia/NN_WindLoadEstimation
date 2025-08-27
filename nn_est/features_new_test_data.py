@@ -12,6 +12,7 @@ from features import create_sequences
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 def load_data_new_test_data(batch_parameters, max_files=None):
+    
     csv_folder = os.path.join(project_root, "data/raw/Systol Files/Fc")
     file_paths = [os.path.join(csv_folder, f) for f in os.listdir(csv_folder) if f.endswith(".csv")]
 

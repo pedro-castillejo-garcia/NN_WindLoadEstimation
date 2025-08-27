@@ -50,7 +50,7 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.early_stop = True
 
-# Define training function
+# Transformer Training function
 def train_transformer(train_loader, val_loader, batch_params, hyperparameters):
     print("Training Transformer")
     
@@ -779,7 +779,6 @@ def train_cnn(train_loader, val_loader, hyperparams, model_name):
               index=False)
     return model
 
-
 if __name__ == "__main__":              
     
     # Load preprocessed data
@@ -788,7 +787,6 @@ if __name__ == "__main__":
     # DO THIS FOR EVERY MODEL YOU WANT TO TRAIN
     
     train_transformer_flag = False  # Set to True to train Transformer
-    train_xgboost_flag = False  # Set to True to train XGBoost
     train_ffnn_flag = True  # Set to True to train FFNN
     train_one_layer_nn_flag = False  # Set to True to train One-Layer NN
     train_tcn_flag = False  # Set to True to train TCN
